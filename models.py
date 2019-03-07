@@ -72,8 +72,12 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
 
+    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+
+    self.dropout = nn.Dropout(1 - self.dp_keep_prob)
+
     #self.wx = nn.ModuleList([torch.empty(self.hidden_size, self.vocab_size)])
-    self.wx = nn.ModuleList([nn.Linear(self.vocab_size, self.hidden_size)])
+    self.wx = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size)])
     #self.wx = nn.ModuleList([torch.tensor((self.vocab_size, self.hidden_size))])
     self.wx.extend([nn.Linear(self.hidden_size, self.hidden_size) for _ in range(1, self.num_layers )])
     # LFPR: Est-ce qu'on doit utiliser torch.long() ?
@@ -100,7 +104,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
 
 
   def init_weights_uniform(self):
-    pass
+    #pass
     # TODO ========================
     # Initialize all the weights uniformly in the range [-0.1, 0.1]
     # and all the biases to 0 (in place)
@@ -108,6 +112,10 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     # LFPR: Je pense que le _ après une méthode en pytorch le fait en place (https://www.aiworkbox.com/lessons/fill-a-pytorch-tensor-with-a-certain-scalar)
 
     #self.wx = nn.init.uniform_(self.wx, a=-0.1, b=0.1)
+
+    # LFPR : Est-ce qu'on doit initialiser le embedding ??
+    nn.init.uniform_(self.embedding.weight, a=-0.1, b=0.1)
+
     for module in self.wx:
         nn.init.uniform_(module.weight, a=-0.1, b=0.1)
         nn.init.uniform_(module.bias, a=0.0, b=0.0)
@@ -178,41 +186,55 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     l_logits = []
 
 
+    embed = self.embedding(inputs)
+
+
     #print("minibatch")
     for t in range(self.seq_len):
 
-      one_hot_transf = torch.zeros([self.batch_size, self.vocab_size])  # requires_grad = False ??
+      ##one_hot_transf = torch.zeros([self.batch_size, self.vocab_size])  # requires_grad = False ??
+      ##for pos in range(self.batch_size):
+          ##one_hot_transf[pos, inputs[t,pos]] = 1.0
 
-      for pos in range(self.batch_size):
-          one_hot_transf[pos, inputs[t,pos]] = 1.0
+
 
       l_hidden = []
       for layer in range(self.num_layers):
         #new_hidden = self.init_hidden()
         #temp = torch.mm(self.wh[layer], hidden[layer,:,:]) #Problem je pense
         #temp = torch.mm(hidden[layer, :, :], self.wh[layer])
-        temp = self.wh[layer](hidden[layer, :, :])
+        temp = self.wh[layer](hidden[layer, :, :])  # LFPR: Enlever les :,: ici
         ###temp = temp + self.bh[layer]
         if layer == 0:
           #temp = temp + torch.mm(self.wx[layer], torch.transpose(nn.functional.one_hot(inputs[t]),0,1)) #LFPR: Changer ici
           #temp = temp + torch.mm(nn.functional.one_hot(inputs[t]), self.wx[layer]) #ICI CHANGER ORDRE
           #temp = temp + self.wx[layer](nn.functional.one_hot(inputs[t], num_classes=self.vocab_size))
-          temp2 = temp.add(self.wx[layer](one_hot_transf))
+
+
+          ##temp2 = temp.add(self.wx[layer](one_hot_transf))
+          temp2 = temp.add(self.wx[layer](embed[t]))
+
         else:
           #temp = temp + torch.mm(self.wx[layer], hidden[layer,:,:]) # Problem
           #temp = temp + torch.mm(hidden[layer-1, :, :], self.wx[layer])
           #temp2 = temp.add(self.wx[layer](hidden[layer-1, :, :]))
           temp2 = temp.add(self.wx[layer](last_hidden_below))
 
+        check = torch.nn.Tanh()  # LFPR: tanh ou sigmoid ?
+        temp2 = check(temp2)
+        l_hidden.append(temp2)
+
+        temp2 = self.dropout(temp2)
+
         #print("coucou")
         #print(temp)
-        check = torch.nn.Tanh()
+
         #print(torch.nn.Tanh(temp))
         #hidden[layer, :, :] = torch.nn.modules.activation.Tanh(temp)  #LFPR: appliquer tanh ou sigmoid  ??
         #hidden[layer, :, :] = check(temp2)  # LFPR: appliquer tanh ou sigmoid  ??
         #new_hidden[]
-        last_hidden_below = hidden[layer, :, :].clone()
-        l_hidden.append(check(temp2))
+        last_hidden_below = temp2.clone()
+        #l_hidden.append(check(temp2))
 
       hidden = torch.stack(l_hidden)
 
