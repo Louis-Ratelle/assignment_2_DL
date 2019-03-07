@@ -114,7 +114,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     #self.wx = nn.init.uniform_(self.wx, a=-0.1, b=0.1)
 
     # LFPR : Est-ce qu'on doit initialiser le embedding ??
-    nn.init.uniform_(self.embedding.weight, a=-0.1, b=0.1)
+    #nn.init.uniform_(self.embedding.weight, a=-0.1, b=0.1)
 
     for module in self.wx:
         nn.init.uniform_(module.weight, a=-0.1, b=0.1)
