@@ -77,12 +77,12 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     self.dropout = nn.Dropout(1 - self.dp_keep_prob)
 
     #self.wx = nn.ModuleList([torch.empty(self.hidden_size, self.vocab_size)])
-    self.wx = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias = True)])
+    self.wx = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias = False)])
     #self.wx = nn.ModuleList([torch.tensor((self.vocab_size, self.hidden_size))])
-    self.wx.extend([nn.Linear(self.hidden_size, self.hidden_size, bias = True) for _ in range(1, self.num_layers )])
+    self.wx.extend([nn.Linear(self.hidden_size, self.hidden_size, bias = False) for _ in range(1, self.num_layers )])
     # LFPR: Est-ce qu'on doit utiliser torch.long() ?
 
-    self.wh = clones(nn.Linear(self.hidden_size, self.hidden_size, bias= False), self.num_layers)
+    self.wh = clones(nn.Linear(self.hidden_size, self.hidden_size, bias= True), self.num_layers)
     # LFPR: Est-ce qu'on doit utiliser torch.long() ?
 
     #self.bh = clones(torch.empty(self.hidden_size,1), self.num_layers) # LFPR: Juste 1 dimension ou 2 ici ?
@@ -114,19 +114,21 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     #self.wx = nn.init.uniform_(self.wx, a=-0.1, b=0.1)
 
     # LFPR : Est-ce qu'on doit initialiser le embedding ??
-    nn.init.uniform_(self.embedding.weight, 0.1,0.1)
+    bound = 1 / ((self.hidden_size) ** (0.5))
+
+    nn.init.uniform_(self.embedding.weight, -0.1,0.1)
 
     for module in self.wx:
-        nn.init.uniform_(module.weight, -0.1, 0.1)
-        nn.init.uniform_(module.bias, 0.0, 0.0)
+        nn.init.uniform_(module.weight, -bound, bound)
 
     #self.wh = nn.init.uniform_(self.wh, a=-0.1, b=0.1)
     for module in self.wh:
-        nn.init.uniform_(module.weight, -0.1, 0.1)
+        nn.init.uniform_(module.weight, -bound, bound)
+        nn.init.uniform_(module.bias, -bound, bound)
 
     #self.wy = nn.init.uniform_(self.wy, a=-0.1, b=0.1)
     nn.init.uniform_(self.wy.weight, -0.1,  0.1)
-    nn.init.uniform_(self.wy.bias, 0.0, 0.0)
+    nn.init.zeros_(self.wy.bias)
 
     #self.bh = self.bh.fill_(0.0)
 
@@ -297,6 +299,7 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
     # TODO ========================
 
+    self.emb_size = emb_size
     self.hidden_size = hidden_size
     self.seq_len = seq_len
     self.batch_size = batch_size
@@ -304,17 +307,137 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
 
+    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
+
+    self.dropout = nn.Dropout(1 - self.dp_keep_prob)
+
+    self.wr = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
+    self.wr.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
+    self.ur = clones(nn.Linear(self.hidden_size, self.hidden_size, bias= True), self.num_layers)
+    self.sigma_r = torch.nn.Sigmoid()
+
+    self.wz = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
+    self.wz.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
+    self.uz = clones(nn.Linear(self.hidden_size, self.hidden_size, bias=True), self.num_layers)
+    self.sigma_z = torch.nn.Sigmoid()
+
+    self.wh = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
+    self.wh.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
+    self.uh = clones(nn.Linear(self.hidden_size, self.hidden_size, bias=True), self.num_layers)
+    self.Tanh_h = torch.nn.Tanh()
+
+    self.wy = nn.Linear(self.hidden_size, self.vocab_size, bias=True)
+
+
+
+
+
+
+
+
+
 
   def init_weights_uniform(self):
-    pass
-    # TODO ========================
+    #pass
+    bound = 1 / ((self.hidden_size) ** (0.5))
+
+    nn.init.uniform_(self.embedding.weight, -0.1, 0.1)
+
+    for module in self.wr:
+        nn.init.uniform_(module.weight, -bound, bound)
+    for module in self.ur:
+        nn.init.uniform_(module.weight, -bound, bound)
+        nn.init.uniform_(module.bias, -bound, bound)
+
+    for module in self.wz:
+        nn.init.uniform_(module.weight, -bound, bound)
+    for module in self.uz:
+        nn.init.uniform_(module.weight, -bound, bound)
+        nn.init.uniform_(module.bias, -bound, bound)
+
+    for module in self.wh:
+        nn.init.uniform_(module.weight, -bound, bound)
+    for module in self.uh:
+        nn.init.uniform_(module.weight, -bound, bound)
+        nn.init.uniform_(module.bias, -bound, bound)
+
+
+
 
   def init_hidden(self):
     # TODO ========================
-    return 1234# a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
+    hidden = torch.zeros([self.num_layers, self.batch_size, self.hidden_size])
+    return hidden # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
   def forward(self, inputs, hidden):
     # TODO ========================
+
+    l_logits = []
+
+    embed = self.embedding(inputs)
+
+    # print("minibatch")
+    for t in range(self.seq_len):
+
+        ##one_hot_transf = torch.zeros([self.batch_size, self.vocab_size])  # requires_grad = False ??
+        ##for pos in range(self.batch_size):
+        ##one_hot_transf[pos, inputs[t,pos]] = 1.0
+
+        l_hidden = []
+        for layer in range(self.num_layers):
+            # new_hidden = self.init_hidden()
+            # temp = torch.mm(self.wh[layer], hidden[layer,:,:]) #Problem je pense
+            # temp = torch.mm(hidden[layer, :, :], self.wh[layer])
+            temp = self.wh[layer](hidden[layer])
+            ###temp = temp + self.bh[layer]
+            if layer == 0:
+                # temp = temp + torch.mm(self.wx[layer], torch.transpose(nn.functional.one_hot(inputs[t]),0,1)) #LFPR: Changer ici
+                # temp = temp + torch.mm(nn.functional.one_hot(inputs[t]), self.wx[layer]) #ICI CHANGER ORDRE
+                # temp = temp + self.wx[layer](nn.functional.one_hot(inputs[t], num_classes=self.vocab_size))
+
+                ##temp2 = temp.add(self.wx[layer](one_hot_transf))
+                temp2 = temp.add(
+                    self.wx[layer](self.dropout(embed[t])))  # ICI Il faut mettre du dropout ici sur embed[t]
+
+            else:
+                # temp = temp + torch.mm(self.wx[layer], hidden[layer,:,:]) # Problem
+                # temp = temp + torch.mm(hidden[layer-1, :, :], self.wx[layer])
+                # temp2 = temp.add(self.wx[layer](hidden[layer-1, :, :]))
+                temp2 = temp.add(self.wx[layer](last_hidden_below))
+
+            tan_h = torch.nn.Tanh()  # LFPR: tanh ou sigmoid ?
+            temp2 = tan_h(temp2)
+            l_hidden.append(temp2.clone())
+
+            temp2 = self.dropout(temp2)
+
+            # print("coucou")
+            # print(temp)
+
+            # print(torch.nn.Tanh(temp))
+            # hidden[layer, :, :] = torch.nn.modules.activation.Tanh(temp)  #LFPR: appliquer tanh ou sigmoid  ??
+            # hidden[layer, :, :] = check(temp2)  # LFPR: appliquer tanh ou sigmoid  ??
+            # new_hidden[]
+            last_hidden_below = temp2.clone()
+            # l_hidden.append(check(temp2))
+
+        hidden = torch.stack(l_hidden)
+
+        # print(self.seq_len,t)
+
+        # Faire la sortie
+        # logits[t,:,:] = torch.mm(self.wy, hidden[self.num_layers-1,:,:]) + self.by  # Problem je pense # LFPR: J'ai enleve torch.nn.Sigmoid()
+        # logits[t, :, :] = torch.mm(hidden[self.num_layers - 1, :, :], self.wy) ###+ self.by
+
+        # logits[t, :, :] = self.wy(hidden[self.num_layers - 1, :, :])
+
+        # l_logits.append(self.wy(hidden[self.num_layers - 1]))
+        l_logits.append(self.wy(last_hidden_below.clone()))
+
+    logits = torch.stack(l_logits)
+
+
+
     return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
   def generate(self, input, hidden, generated_seq_len):
