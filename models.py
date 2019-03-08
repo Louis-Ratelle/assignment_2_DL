@@ -330,13 +330,6 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
 
 
-
-
-
-
-
-
-
   def init_weights_uniform(self):
     #pass
     bound = 1 / ((self.hidden_size) ** (0.5))
@@ -361,7 +354,8 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
         nn.init.uniform_(module.weight, -bound, bound)
         nn.init.uniform_(module.bias, -bound, bound)
 
-
+    nn.init.uniform_(self.wy.weight, -0.1, 0.1)
+    nn.init.zeros_(self.wy.bias)
 
 
   def init_hidden(self):
@@ -376,67 +370,30 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
     embed = self.embedding(inputs)
 
-    # print("minibatch")
     for t in range(self.seq_len):
-
-        ##one_hot_transf = torch.zeros([self.batch_size, self.vocab_size])  # requires_grad = False ??
-        ##for pos in range(self.batch_size):
-        ##one_hot_transf[pos, inputs[t,pos]] = 1.0
 
         l_hidden = []
         for layer in range(self.num_layers):
-            # new_hidden = self.init_hidden()
-            # temp = torch.mm(self.wh[layer], hidden[layer,:,:]) #Problem je pense
-            # temp = torch.mm(hidden[layer, :, :], self.wh[layer])
-            temp = self.wh[layer](hidden[layer])
-            ###temp = temp + self.bh[layer]
             if layer == 0:
-                # temp = temp + torch.mm(self.wx[layer], torch.transpose(nn.functional.one_hot(inputs[t]),0,1)) #LFPR: Changer ici
-                # temp = temp + torch.mm(nn.functional.one_hot(inputs[t]), self.wx[layer]) #ICI CHANGER ORDRE
-                # temp = temp + self.wx[layer](nn.functional.one_hot(inputs[t], num_classes=self.vocab_size))
-
-                ##temp2 = temp.add(self.wx[layer](one_hot_transf))
-                temp2 = temp.add(
-                    self.wx[layer](self.dropout(embed[t])))  # ICI Il faut mettre du dropout ici sur embed[t]
-
+                x = self.dropout(embed[t])
             else:
-                # temp = temp + torch.mm(self.wx[layer], hidden[layer,:,:]) # Problem
-                # temp = temp + torch.mm(hidden[layer-1, :, :], self.wx[layer])
-                # temp2 = temp.add(self.wx[layer](hidden[layer-1, :, :]))
-                temp2 = temp.add(self.wx[layer](last_hidden_below))
+                x = last_hidden_below
 
-            tan_h = torch.nn.Tanh()  # LFPR: tanh ou sigmoid ?
-            temp2 = tan_h(temp2)
-            l_hidden.append(temp2.clone())
+            rt = self.sigma_r(self.wr[layer](x) + self.ur[layer](hidden[layer]))
+            zt = self.sigma_z(self.wz[layer](x) + self.uz[layer](hidden[layer]))
+            h_tilde_t =  self.Tanh_h(self.wh[layer](x) + self.uh[layer](rt * hidden[layer]))
 
-            temp2 = self.dropout(temp2)
+            ht = (1-zt) * hidden[layer]  + zt * h_tilde_t
 
-            # print("coucou")
-            # print(temp)
+            l_hidden.append(ht.clone())
 
-            # print(torch.nn.Tanh(temp))
-            # hidden[layer, :, :] = torch.nn.modules.activation.Tanh(temp)  #LFPR: appliquer tanh ou sigmoid  ??
-            # hidden[layer, :, :] = check(temp2)  # LFPR: appliquer tanh ou sigmoid  ??
-            # new_hidden[]
-            last_hidden_below = temp2.clone()
-            # l_hidden.append(check(temp2))
+            last_hidden_below = self.dropout(ht).clone()
 
         hidden = torch.stack(l_hidden)
 
-        # print(self.seq_len,t)
-
-        # Faire la sortie
-        # logits[t,:,:] = torch.mm(self.wy, hidden[self.num_layers-1,:,:]) + self.by  # Problem je pense # LFPR: J'ai enleve torch.nn.Sigmoid()
-        # logits[t, :, :] = torch.mm(hidden[self.num_layers - 1, :, :], self.wy) ###+ self.by
-
-        # logits[t, :, :] = self.wy(hidden[self.num_layers - 1, :, :])
-
-        # l_logits.append(self.wy(hidden[self.num_layers - 1]))
-        l_logits.append(self.wy(last_hidden_below.clone()))
+        l_logits.append(self.wy(last_hidden_below))
 
     logits = torch.stack(l_logits)
-
-
 
     return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden
 
