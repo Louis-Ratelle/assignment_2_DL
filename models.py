@@ -7,6 +7,8 @@ import math, copy, time
 from torch.autograd import Variable
 import matplotlib.pyplot as plt
 
+import pdb
+
 # NOTE ==============================================
 #
 # Fill in code for every method which has a TODO
@@ -501,7 +503,9 @@ class MultiHeadedAttention(nn.Module):
       attn = torch.exp(attn)
 
       if mask is not None:
-          attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
+
+          attn = attn.masked_fill(mask == 0, -10e9)
+          #attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
 
       attn = attn / attn.sum(-1, keepdim=True)
 
@@ -518,27 +522,26 @@ class MultiHeadedAttention(nn.Module):
         # generating the "attention values" (i.e. A_i in the .tex)
         # Also apply dropout to the attention values.
 
-      assert query.size(-1) == self.d_k
+          if mask is not None:
+              # Same mask applied to all h heads.
+              mask = mask.unsqueeze(1)
 
-      if mask is not None:
-          # Same mask applied to all h heads.
-          mask = mask.unsqueeze(1)
+          nbatches = query.size(0)
 
-      nbatches = query.size(0)
+          # 1) Do all the linear projections in batch from n_units => n_heads x d_k
+          query, key, value = \
+              [l(x).view(nbatches, -1, self.n_heads, self.d_k).transpose(1, 2)
+               for l, x in zip(self.tfm, (query, key, value))]
 
-      # 1) Do all the linear projections in batch from n_units => n_heads x d_k
-      query, key, value = \
-          [l(x).view(nbatches, -1, self.n_heads, self.d_k).transpose(1, 2)
-           for l, x in zip(self.tfm, (query, key, value))]
+          # 2) Apply attention on all the projected vectors in batch.
+          A, self.attn = self.attention(query, key, value, mask=mask,
+                                   dropout=self.dropout)
 
-      # 2) Apply attention on all the projected vectors in batch.
-      A, self.attn = attention(query, key, value, mask=mask,
-                               dropout=self.dropout)
+          # 3) "Concat" using a view and apply a final linear.
+          A = A.transpose(1, 2).contiguous() \
+               .view(nbatches, -1, self.n_heads * self.d_k)
 
-      # 3) "Concat" using a view and apply a final linear.
-      A = A.transpose(1, 2).contiguous() \
-           .view(nbatches, -1, self.n_heads * self.d_k)
-      return self.linears[-1](A) # size: (batch, Seq_len, n_units)
+          return self.tfm[-1](A) # size: (batch, Seq_len, n_units)
 
 #----------------------------------------------------------------------------------
 # The encodings of elements of the input sequence
