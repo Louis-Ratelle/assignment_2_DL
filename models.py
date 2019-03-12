@@ -329,7 +329,7 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
     self.Tanh_h = torch.nn.Tanh()
 
     self.wy = nn.Linear(self.hidden_size, self.vocab_size, bias=True)
-    
+
     self.init_weights_uniform()
 
 
@@ -491,12 +491,31 @@ class MultiHeadedAttention(nn.Module):
         # This requires the number of n_heads to evenly divide n_units.
         assert n_units % n_heads == 0
         self.n_heads = n_heads
+        self.n_units = n_units
         self.dropout = nn.Dropout(dropout)
         self.tfm = clones(nn.Linear(n_units, n_units), 4)
+        self.initialize_params()
+
+    def initialize_params(self):
+        """
+        Method to initialize all weights and biases uniformly in the range
+        [-k, k] of all layers of a 'ModuleList',
+        where k is the square root of 1/n_units.
+        """
+
+        bound = 1 / ((self.n_units) ** (0.5))
+
+        for module in self.tfm:
+            nn.init.uniform_(module.weight, -bound, bound)
+            nn.init.uniform_(module.bias, -bound, bound)
+        #pdb.set_trace()
+
 
     @staticmethod
     def attention(query, key, value, mask=None, dropout=None):
-      "Compute 'Scaled Dot Product Attention'"
+      """
+      Static method for computing the 'Scaled Dot Product Attention'.
+      """
       d_k = query.size(-1)
 
       attn = torch.matmul(query, key.transpose(-2, -1)) \
@@ -518,7 +537,7 @@ class MultiHeadedAttention(nn.Module):
     def forward(self, query, key, value, mask=None):
 
         # TODO: implement the masked multi-head attention.
-        # query, key, and value all have size: (batch_size, seq_len, self.n_units)
+        # query,key and value all have size: (batch_size, seq_len, self.n_units)
         # mask has size: (batch_size, seq_len, seq_len)
         # As described in the .tex, apply input masking to the softmax
         # generating the "attention values" (i.e. A_i in the .tex)
@@ -530,7 +549,7 @@ class MultiHeadedAttention(nn.Module):
 
           nbatches = query.size(0)
 
-          # 1) Do all the linear projections in batch from n_units => n_heads x d_k
+          # 1) Execute linear projections in batch from n_units => n_heads x d_k
           query, key, value = \
               [l(x).view(nbatches, -1, self.n_heads, self.d_k).transpose(1, 2)
                for l, x in zip(self.tfm, (query, key, value))]
