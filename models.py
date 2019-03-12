@@ -329,6 +329,8 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
     self.Tanh_h = torch.nn.Tanh()
 
     self.wy = nn.Linear(self.hidden_size, self.vocab_size, bias=True)
+    
+    self.init_weights_uniform()
 
 
 
