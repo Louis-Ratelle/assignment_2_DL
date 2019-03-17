@@ -90,6 +90,8 @@ import torch.nn as nn
 import numpy
 np = numpy
 
+from tensorboardX import SummaryWriter
+
 # NOTE ==============================================
 # This is where your models are imported
 from models import RNN, GRU 
@@ -439,6 +441,8 @@ if args.debug:
 else:
     num_epochs = args.num_epochs
 
+writer = SummaryWriter(args.save_dir)
+
 # MAIN LOOP
 for epoch in range(num_epochs):
     t0 = time.time()
@@ -483,6 +487,10 @@ for epoch in range(num_epochs):
     print(log_str)
     with open (os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
         f_.write(log_str+ '\n')
+
+    writer.add_scalar('train_ppl', train_ppl, epoch)
+    writer.add_scalar('val_ppl', val_ppl, epoch)
+
 
 # SAVE LEARNING CURVES
 lc_path = os.path.join(args.save_dir, 'learning_curves.npy')

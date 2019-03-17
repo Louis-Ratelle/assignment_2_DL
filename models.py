@@ -5,9 +5,13 @@ import numpy as np
 import torch.nn.functional as F
 import math, copy, time
 from torch.autograd import Variable
-import matplotlib.pyplot as plt
 
-import pdb
+
+
+
+# import matplotlib.pyplot as plt
+
+# import pdb
 
 # NOTE ==============================================
 #
@@ -286,8 +290,8 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
         - Sampled sequences of tokens
                     shape: (generated_seq_len, batch_size)
     """
-
-    return samples
+    pass
+    # return samples
 
 
 # Problem 2
@@ -403,7 +407,8 @@ class GRU(nn.Module): # Implement a stacked GRU RNN
 
   def generate(self, input, hidden, generated_seq_len):
     # TODO ========================
-    return samples
+    pass
+    # return samples
 
 
 # Problem 3
