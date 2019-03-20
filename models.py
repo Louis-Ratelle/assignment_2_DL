@@ -528,7 +528,8 @@ class MultiHeadedAttention(nn.Module):
           attn = attn.masked_fill(mask == 0, -10e9)
           #attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
 
-      attn = attn / attn.sum(-1, keepdim=True)
+      #attn = attn / attn.sum(-1, keepdim=True)
+      attn = F.softmax(attn, dim = -1)
 
       if dropout is not None:
           attn = dropout(attn)
