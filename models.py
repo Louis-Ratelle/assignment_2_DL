@@ -521,7 +521,7 @@ class MultiHeadedAttention(nn.Module):
       attn = torch.matmul(query, key.transpose(-2, -1)) \
                / math.sqrt(d_k)
 
-      attn = torch.exp(attn)
+      #attn = torch.exp(attn)
 
       if mask is not None:
 
