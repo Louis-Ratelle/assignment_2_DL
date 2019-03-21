@@ -525,7 +525,7 @@ class MultiHeadedAttention(nn.Module):
 
       if mask is not None:
 
-          attn = attn.masked_fill(mask == 0, -10e9)
+          attn = attn.masked_fill(mask, -10e9)
           #attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
 
       #attn = attn / attn.sum(-1, keepdim=True)
