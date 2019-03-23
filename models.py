@@ -526,14 +526,15 @@ class MultiHeadedAttention(nn.Module):
       attn = torch.matmul(query, key.transpose(-2, -1)) \
                / math.sqrt(d_k)
 
-      attn = torch.exp(attn)
+      #attn = torch.exp(attn)
 
       if mask is not None:
 
           attn = attn.masked_fill(mask == 0, -10e9)
           #attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
 
-      attn = attn / attn.sum(-1, keepdim=True)
+      #attn = attn / attn.sum(-1, keepdim=True)
+      attn = F.softmax(attn, dim = -1)
 
       if dropout is not None:
           attn = dropout(attn)
