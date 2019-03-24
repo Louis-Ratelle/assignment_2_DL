@@ -37,7 +37,7 @@ def clones(module, N):
 
 # Problem 1
 class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities.
-  def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
+  def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob, get_gradients = False):
     """
     emb_size:     The number of units in the input embeddings
     hidden_size:  The number of hidden units per layer
@@ -48,6 +48,8 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     dp_keep_prob: The probability of *not* dropping out units in the
                   non-recurrent connections.
                   Do not apply dropout on recurrent connections.
+    get_gradients:If True obtain gradient of the Loss at the final time-step
+                  with respect to the hidden state at each time-step
     """
     super(RNN, self).__init__()
 
@@ -73,6 +75,7 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     self.vocab_size = vocab_size
     self.num_layers = num_layers
     self.dp_keep_prob = dp_keep_prob
+    self.get_gradients = get_gradients
 
     self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
 
