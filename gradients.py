@@ -408,8 +408,8 @@ def run_epoch(model, data, is_train=False, lr=1.0):
         grad_norm = 0
         for idx in range(len(grad_params)):
             grad_norm += torch.norm(grad_params[idx])
-        print('rnn2 - loss: %f' % (loss2))
-        print('rnn2 - sum of gradient norm is: %f' % (grad_norm))
+        print('loss: %f' % (loss))
+        print('sum of gradient norm is: %f' % (grad_norm))
 
         costs += loss.data.item() * model.seq_len
         losses.append(costs)
@@ -443,6 +443,7 @@ train_ppls = []
 train_losses = []
 val_ppls = []
 val_losses = []
+val_grads = []
 best_val_so_far = np.inf
 times = []
 
@@ -455,7 +456,7 @@ else:
 # MAIN LOOP
 
 model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
-# model.to(device) ???
+
 model.eval()
 print(model)
 
@@ -470,8 +471,8 @@ for epoch in range(1):
     # train_ppl, train_loss = run_epoch(model, train_data, True, lr)
 
     # RUN MODEL ON VALIDATION DATA
-    val_ppl, val_loss, grad_norm = run_epoch(model, valid_data)
-    print(val_ppl, val_loss, grad_norm)
+    val_ppl, val_loss, val_grad = run_epoch(model, valid_data)
+    print(val_ppl, val_loss, val_grad)
 
 
     # SAVE MODEL IF IT'S THE BEST SO FAR
@@ -489,31 +490,27 @@ for epoch in range(1):
         # want to look at test performance you would load the saved
         # model and run on the test data with batch_size=1
 
-    # LOC RESULTS
-    # train_ppls.append(train_ppl)
-    # val_ppls.append(val_ppl)
-    # # train_losses.extend(train_loss)
-    # val_losses.extend(val_loss)
-    # times.append(time.time() - t0)
-    # log_str = 'epoch: ' + str(epoch) + '\t' \
-    #           + 'train ppl: ' + str(train_ppl) + '\t' \
-    #           + 'val ppl: ' + str(val_ppl) + '\t' \
-    #           + 'best val: ' + str(best_val_so_far) + '\t' \
-    #           + 'time (s) spent in epoch: ' + str(times[-1])
-    # print(log_str)
-    # with open(os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
-    #     f_.write(log_str + '\n')
+        # LOC RESULTS
+        val_ppls.append(val_ppl)
+        val_grads.extend(val_grad)
+        val_losses.extend(val_loss)
+        times.append(time.time() - t0)
+        log_str = 'epoch: ' + str(epoch) + '\t' \
+                + 'train ppl: ' + str(train_ppl) + '\t' \
+                + 'val ppl: ' + str(val_ppl)  + '\t' \
+                + 'best val: ' + str(best_val_so_far) + '\t' \
+                + 'time (s) spent in epoch: ' + str(times[-1])
+        print(log_str)
+        with open (os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
+            f_.write(log_str+ '\n')
 
-    # writer.add_scalar('train_ppl', train_ppl, epoch)
-    # writer.add_scalar('val_ppl', val_ppl, epoch)
+    # SAVE LEARNING CURVES
+    lc_path = os.path.join(args.save_dir, 'grad_values.npy')
+    print('\nDONE\n\nSaving gradient values to '+ lc_path)
+    np.save(lc_path, {'val_ppls':val_ppls,
+                      'val_losses':val_losses,
+                      'val_grads':val_grads})
 
-# SAVE LEARNING CURVES
-# lc_path = os.path.join(args.save_dir, 'learning_curves.npy')
-# print('\nDONE\n\nSaving learning curves to ' + lc_path)
-# np.save(lc_path, {'train_ppls': train_ppls,
-#                   'val_ppls': val_ppls,
-#                   'train_losses': train_losses,
-#                   'val_losses': val_losses})
 # NOTE ==============================================
 # To load these, run
 # >>> x = np.load(lc_path)[()]
