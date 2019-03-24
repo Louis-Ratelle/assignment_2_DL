@@ -1,6 +1,8 @@
 #!/bin/python
 # coding: utf-8
 
+###  Question 5.1 ###
+
 # Code outline/scaffold for
 # ASSIGNMENT 2: RNNs, Attention, and Optimization
 # By Tegan Maharaj, David Krueger, and Chin-Wei Huang
@@ -77,22 +79,25 @@
 #      GRU.  Implementing this method is not considered part of problems 1/2
 #      respectively, and will be graded as part of Problem 5.3
 
+
 import argparse
-import time
 import collections
 import os
 import sys
+import time
+
+import numpy
 import torch
 import torch.nn
-from torch.autograd import Variable
 import torch.nn as nn
-import numpy
+from torch.autograd import Variable
+
 np = numpy
 
+# NOTE ==============================================
+# This is where your models are imported
 from models import RNN, GRU
 from models import make_model as TRANSFORMER
-
-
 
 ##############################################################################
 #
@@ -123,10 +128,6 @@ parser.add_argument('--save_best', action='store_true',
 parser.add_argument('--num_layers', type=int, default=2,
                     help='number of hidden layers in RNN/GRU, or number of transformer blocks in TRANSFORMER')
 
-parser.add_argument('--load_model', type=str, default='',
-                    help='path to model to load')
-
-
 # Other hyperparameters you may want to tune in your exploration
 parser.add_argument('--emb_size', type=int, default=200,
                     help='size of word embeddings')
@@ -135,6 +136,9 @@ parser.add_argument('--num_epochs', type=int, default=40,
 parser.add_argument('--dp_keep_prob', type=float, default=0.35,
                     help='dropout *keep* probability. drop_prob = 1-dp_keep_prob \
                     (dp_keep_prob=1 means no dropout)')
+
+parser.add_argument('--load_model', type=str, default='',
+                    help='path to model to load')
 
 # Arguments that you may want to make use of / implement more code for
 parser.add_argument('--debug', action='store_true')
@@ -158,26 +162,54 @@ args = parser.parse_args()
 argsdict = args.__dict__
 argsdict['code_file'] = sys.argv[0]
 
-# # Use the model, optimizer, and the flags passed to the script to make the
-# # name for the experimental dir
-# print("\n########## Setting Up Experiment ######################")
-# flags = [flag.lstrip('--') for flag in sys.argv[1:]]
-# experiment_path = os.path.join(args.save_dir+'_'.join([argsdict['model'],
-#                                          argsdict['optimizer']]
-#                                          + flags))
-#
-# # Increment a counter so that previous results with the same args will not
-# # be overwritten. Comment out the next four lines if you only want to keep
-# # the most recent results.
+# Use the model, optimizer, and the flags passed to the script to make the
+# name for the experimental dir
+print("\n########## Setting Up Experiment ######################")
+flags = [flag.lstrip('--') for flag in sys.argv[1:]]
+experiment_path = os.path.join(args.save_dir + '_'.join([argsdict['model'],
+                                                         argsdict['optimizer']]
+                                                        + flags))
+
+# Increment a counter so that previous results with the same args will not
+# be overwritten. Comment out the next four lines if you only want to keep
+# the most recent results.
 # i = 0
 # while os.path.exists(experiment_path + "_" + str(i)):
 #     i += 1
 # experiment_path = experiment_path + "_" + str(i)
 
+# Creates an experimental directory and dumps all the args to a text file
+# os.mkdir(experiment_path)
+# print("\nPutting log in %s" % experiment_path)
+# argsdict['save_dir'] = experiment_path
+# with open(os.path.join(experiment_path, 'exp_config.txt'), 'w') as f:
+#     for key in sorted(argsdict):
+#         f.write(key + '    ' + str(argsdict[key]) + '\n')
+
+# Set the random seed manually for reproducibility.
+torch.manual_seed(args.seed)
+
+# Use the GPU if you have one
+if torch.cuda.is_available():
+    print("Using the GPU")
+    device = torch.device("cuda")
+else:
+    print("WARNING: You are about to run on cpu, and this will likely run out \
+      of memory. \n You can try setting batch_size=1 to reduce memory usage")
+    device = torch.device("cpu")
+
+
+###############################################################################
+#
+# DATA LOADING & PROCESSING
+#
+###############################################################################
+
 # HELPER FUNCTIONS
 def _read_words(filename):
     with open(filename, "r") as f:
-      return f.read().replace("\n", "<eos>").split()
+        return f.read().replace("\n", "<eos>").split()
+
 
 def _build_vocab(filename):
     data = _read_words(filename)
@@ -191,9 +223,11 @@ def _build_vocab(filename):
 
     return word_to_id, id_to_word
 
+
 def _file_to_word_ids(filename, word_to_id):
     data = _read_words(filename)
     return [word_to_id[word] for word in data if word in word_to_id]
+
 
 # Processes the raw data from text files
 def ptb_raw_data(data_path=None, prefix="ptb"):
@@ -207,6 +241,8 @@ def ptb_raw_data(data_path=None, prefix="ptb"):
     test_data = _file_to_word_ids(test_path, word_to_id)
     return train_data, valid_data, test_data, word_to_id, id_2_word
 
+
+# Yields minibatches of data
 def ptb_iterator(raw_data, batch_size, num_steps):
     raw_data = np.array(raw_data, dtype=np.int32)
 
@@ -222,63 +258,9 @@ def ptb_iterator(raw_data, batch_size, num_steps):
         raise ValueError("epoch_size == 0, decrease batch_size or num_steps")
 
     for i in range(epoch_size):
-        x = data[:, i*num_steps:(i+1)*num_steps]
-        y = data[:, i*num_steps+1:(i+1)*num_steps+1]
+        x = data[:, i * num_steps:(i + 1) * num_steps]
+        y = data[:, i * num_steps + 1:(i + 1) * num_steps + 1]
         yield (x, y)
-
-
-# LOAD DATA
-print('Loading data from '+args.data)
-raw_data = ptb_raw_data(data_path=args.data)
-train_data, valid_data, test_data, word_to_id, id_2_word = raw_data
-vocab_size = len(word_to_id)
-print('  vocabulary size: {}'.format(vocab_size))
-
-# Set the random seed manually for reproducibility.
-torch.manual_seed(args.seed)
-
-# Use the GPU if you have one
-if torch.cuda.is_available():
-    print("Using the GPU")
-    device = torch.device("cuda")
-else:
-    print("WARNING: You are about to run on cpu, and this will likely run out \
-      of memory. \n You can try setting batch_size=1 to reduce memory usage")
-    device = torch.device("cpu")
-
-
-
-if args.model == 'RNN':
-    model = RNN(emb_size=args.emb_size, hidden_size=args.hidden_size,
-                seq_len=args.seq_len, batch_size=args.batch_size,
-                vocab_size=vocab_size, num_layers=args.num_layers,
-                dp_keep_prob=args.dp_keep_prob)
-elif args.model == 'GRU':
-    model = GRU(emb_size=args.emb_size, hidden_size=args.hidden_size,
-                seq_len=args.seq_len, batch_size=args.batch_size,
-                vocab_size=vocab_size, num_layers=args.num_layers,
-                dp_keep_prob=args.dp_keep_prob)
-
-
-model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
-# model.to(device) ???
-# model.eval()
-print(model)
-# model.generate(1,2,3)  ###  input, hidden, generated_seq_len)
-
-"""
-Arguments:
-    - input: A mini-batch of input tokens (NOT sequences!)
-                    shape: (batch_size)
-    - hidden: The initial hidden states for every layer of the stacked RNN.
-                    shape: (num_layers, batch_size, hidden_size)
-    - generated_seq_len: The length of the sequence to generate.
-                   Note that this can be different than the length used
-                   for training (self.seq_len)
-Returns:
-    - Sampled sequences of tokens
-                shape: (generated_seq_len, batch_size)
-"""
 
 
 class Batch:
@@ -404,7 +386,8 @@ def run_epoch(model, data, is_train=False, lr=1.0):
     losses = []
 
     # LOOP THROUGH MINIBATCHES
-    loss = [0 for _ in range(model.seq_len)]
+    # loss = ([0 for _ in range(model.seq_len)])
+    loss = np.zeros(model.seq_len)
 
     for step, (x, y) in enumerate(ptb_iterator(data, model.batch_size, model.seq_len)):
         if args.model == 'TRANSFORMER':
@@ -416,45 +399,47 @@ def run_epoch(model, data, is_train=False, lr=1.0):
             inputs = torch.from_numpy(x.astype(np.int64)).transpose(0, 1).contiguous().to(device)  # .cuda()
             model.zero_grad()
             hidden = repackage_hidden(hidden)
-            outputs, hidden = model(inputs, hidden)
+            outputs, hidden = model(inputs, model.init_hidden())
 
         targets = torch.from_numpy(y.astype(np.int64)).transpose(0, 1).contiguous().to(device)  # .cuda()
-        tt = torch.squeeze(targets.view(-1, model.batch_size * model.seq_len))   ## todo
+        # tt = torch.squeeze(targets.view(-1, model.batch_size * model.seq_len))
 
         # hidden = model.init_hidden()
         # hidden = hidden.to(device)
 
-        # for t in range(0, model.seq_len):
-        #     loss[t] += loss_fn(outputs[t], targets[t]).data.item()
-        #     print(t, loss[t])
-
+        for t in range(0, model.seq_len):
+            loss[t] += loss_fn(outputs[t], targets[t]).data.item()
+            print(t, loss[t])
+        iters += 1
+        # if iters==3:
+        #     break
 
         # LOSS COMPUTATION
         # This line currently averages across all the sequences in a mini-batch
         # and all time-steps of the sequences.
         # For problem 5.3, you will (instead) need to compute the average loss
         # at each time-step separately.
-        loss = loss_fn(outputs.contiguous().view(-1, model.vocab_size), tt)   ## todo
-        costs += loss.data.item() * model.seq_len
+        # loss = loss_fn(outputs.contiguous().view(-1, model.vocab_size), tt)
+        # costs += loss.data.item() * model.seq_len
+        # losses.append(costs)
+        # iters += model.seq_len
+        # if args.debug:
+        #     print(step, loss)
+        # if is_train:  # Only update parameters if training
+        #     loss.backward()
+        #     torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
+        #     if args.optimizer == 'ADAM':
+        #         optimizer.step()
+        #     else:
+        #         for p in model.parameters():
+        #             if p.grad is not None:
+        #                 p.data.add_(-lr, p.grad.data)
+        #     if step % (epoch_size // 10) == 10:
+        #         print('step: ' + str(step) + '\t' \
+        #               + 'loss: ' + str(costs) + '\t' \
+        #               + 'speed (wps):' + str(iters * model.batch_size / (time.time() - start_time)))
 
-        losses.append(costs)
-        iters += model.seq_len
-        if args.debug:
-            print(step, loss)
-        if is_train:  # Only update parameters if training
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
-            if args.optimizer == 'ADAM':
-                optimizer.step()
-            else:
-                for p in model.parameters():
-                    if p.grad is not None:
-                        p.data.add_(-lr, p.grad.data)
-            if step % (epoch_size // 10) == 10:
-                print('step: ' + str(step) + '\t' \
-                      + 'loss: ' + str(costs) + '\t' \
-                      + 'speed (wps):' + str(iters * model.batch_size / (time.time() - start_time)))
-    return np.exp(costs / iters), losses
+    return loss / iters
 
 
 ###############################################################################
@@ -477,25 +462,29 @@ if args.debug:
 else:
     num_epochs = args.num_epochs
 
-# writer = SummaryWriter(args.save_dir)
-
-#### TEST #####
-val_ppl, val_loss = run_epoch(model, valid_data)
-print(val_ppl, val_loss)
-
 # MAIN LOOP
-# for epoch in range(num_epochs):
-#     t0 = time.time()
-#     print('\nEPOCH ' + str(epoch) + ' ------------------')
-#     if args.optimizer == 'SGD_LR_SCHEDULE':
-#         lr_decay = lr_decay_base ** max(epoch - m_flat_lr, 0)
-#         lr = lr * lr_decay  # decay lr if it is time
-#
-#     # RUN MODEL ON TRAINING DATA
-#     train_ppl, train_loss = run_epoch(model, train_data, True, lr)
-#
-#     # RUN MODEL ON VALIDATION DATA
-#     val_ppl, val_loss = run_epoch(model, valid_data)
+
+model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
+# model.to(device) ???
+model.eval()
+print(model)
+
+for epoch in range(1):
+    t0 = time.time()
+    print('\nEPOCH ' + str(epoch) + ' ------------------')
+    if args.optimizer == 'SGD_LR_SCHEDULE':
+        lr_decay = lr_decay_base ** max(epoch - m_flat_lr, 0)
+        lr = lr * lr_decay  # decay lr if it is time
+
+    # RUN MODEL ON TRAINING DATA
+    # train_ppl, train_loss = run_epoch(model, train_data, True, lr)
+
+    # RUN MODEL ON VALIDATION DATA
+    avgloss = run_epoch(model, valid_data)
+    print(avgloss)
+    # for i in enumerate(val_loss):
+    #     val_loss[i]=val_loss[i]/iters
+    # print(val_loss/iters)
 
     # SAVE MODEL IF IT'S THE BEST SO FAR
     # if val_ppl < best_val_so_far:
@@ -503,14 +492,14 @@ print(val_ppl, val_loss)
     #     if args.save_best:
     #         print("Saving model parameters to best_params.pt")
     #         torch.save(model.state_dict(), os.path.join(args.save_dir, 'best_params.pt'))
-        # NOTE ==============================================
-        # You will need to load these parameters into the same model
-        # for a couple Problems: so that you can compute the gradient
-        # of the loss w.r.t. hidden state as required in Problem 5.2
-        # and to sample from the the model as required in Problem 5.3
-        # We are not asking you to run on the test data, but if you
-        # want to look at test performance you would load the saved
-        # model and run on the test data with batch_size=1
+    # NOTE ==============================================
+    # You will need to load these parameters into the same model
+    # for a couple Problems: so that you can compute the gradient
+    # of the loss w.r.t. hidden state as required in Problem 5.2
+    # and to sample from the the model as required in Problem 5.3
+    # We are not asking you to run on the test data, but if you
+    # want to look at test performance you would load the saved
+    # model and run on the test data with batch_size=1
 
     # LOC RESULTS
     # train_ppls.append(train_ppl)
@@ -526,17 +515,14 @@ print(val_ppl, val_loss)
     # print(log_str)
     # with open(os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
     #     f_.write(log_str + '\n')
-
+    #
     # writer.add_scalar('train_ppl', train_ppl, epoch)
     # writer.add_scalar('val_ppl', val_ppl, epoch)
 
 # SAVE LEARNING CURVES
-# lc_path = os.path.join(args.save_dir, 'learning_curves.npy')
-# print('\nDONE\n\nSaving learning curves to ' + lc_path)
-# np.save(lc_path, {'train_ppls': train_ppls,
-#                   'val_ppls': val_ppls,
-#                   'train_losses': train_losses,
-#                   'val_losses': val_losses})
+lc_path = os.path.join(args.save_dir, 'avgloss.npy')
+print('\nDONE\n\nSaving loss curves to ' + lc_path)
+np.save(lc_path, avgloss)
 # NOTE ==============================================
 # To load these, run
 # >>> x = np.load(lc_path)[()]

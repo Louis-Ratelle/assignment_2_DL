@@ -1,19 +1,28 @@
+"""
+Arguments for model.generate:
+    - input: A mini-batch of input tokens (NOT sequences!)
+                    shape: (batch_size)
+    - hidden: The initial hidden states for every layer of the stacked RNN.
+                    shape: (num_layers, batch_size, hidden_size)
+    - generated_seq_len: The length of the sequence to generate.
+                   Note that this can be different than the length used
+                   for training (self.seq_len)
+Returns:
+    - Sampled sequences of tokens
+                shape: (generated_seq_len, batch_size)
+"""
+
 import argparse
-import time
 import collections
 import os
 import sys
-import torch
-import torch.nn
-from torch.autograd import Variable
-import torch.nn as nn
+
 import numpy
+import torch.nn
+
 np = numpy
 
 from models import RNN, GRU
-from models import make_model as TRANSFORMER
-
-
 
 ##############################################################################
 #
@@ -47,7 +56,6 @@ parser.add_argument('--num_layers', type=int, default=2,
 parser.add_argument('--load_model', type=str, default='',
                     help='path to model to load')
 
-
 # Other hyperparameters you may want to tune in your exploration
 parser.add_argument('--emb_size', type=int, default=200,
                     help='size of word embeddings')
@@ -79,6 +87,7 @@ args = parser.parse_args()
 argsdict = args.__dict__
 argsdict['code_file'] = sys.argv[0]
 
+
 # # Use the model, optimizer, and the flags passed to the script to make the
 # # name for the experimental dir
 # print("\n########## Setting Up Experiment ######################")
@@ -98,7 +107,8 @@ argsdict['code_file'] = sys.argv[0]
 # HELPER FUNCTIONS
 def _read_words(filename):
     with open(filename, "r") as f:
-      return f.read().replace("\n", "<eos>").split()
+        return f.read().replace("\n", "<eos>").split()
+
 
 def _build_vocab(filename):
     data = _read_words(filename)
@@ -112,9 +122,11 @@ def _build_vocab(filename):
 
     return word_to_id, id_to_word
 
+
 def _file_to_word_ids(filename, word_to_id):
     data = _read_words(filename)
     return [word_to_id[word] for word in data if word in word_to_id]
+
 
 # Processes the raw data from text files
 def ptb_raw_data(data_path=None, prefix="ptb"):
@@ -128,15 +140,13 @@ def ptb_raw_data(data_path=None, prefix="ptb"):
     test_data = _file_to_word_ids(test_path, word_to_id)
     return train_data, valid_data, test_data, word_to_id, id_2_word
 
+
 # LOAD DATA
-print('Loading data from '+args.data)
+print('Loading data from ' + args.data)
 raw_data = ptb_raw_data(data_path=args.data)
 train_data, valid_data, test_data, word_to_id, id_2_word = raw_data
 vocab_size = len(word_to_id)
 print('  vocabulary size: {}'.format(vocab_size))
-
-
-
 
 if args.model == 'RNN':
     model = RNN(emb_size=args.emb_size, hidden_size=args.hidden_size,
@@ -149,23 +159,16 @@ elif args.model == 'GRU':
                 vocab_size=vocab_size, num_layers=args.num_layers,
                 dp_keep_prob=args.dp_keep_prob)
 
-
 model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
 # model.to(device) ???
 model.eval()
 print(model)
-model.generate(1,2,3)  ###  input, hidden, generated_seq_len)
-
-"""
-Arguments:
-    - input: A mini-batch of input tokens (NOT sequences!)
-                    shape: (batch_size)
-    - hidden: The initial hidden states for every layer of the stacked RNN.
-                    shape: (num_layers, batch_size, hidden_size)
-    - generated_seq_len: The length of the sequence to generate.
-                   Note that this can be different than the length used
-                   for training (self.seq_len)
-Returns:
-    - Sampled sequences of tokens
-                shape: (generated_seq_len, batch_size)
-"""
+input = torch.LongTensor(args.batch_size).random_(0, vocab_size)
+generated_seq_len = 70
+results = model.generate(input, model.init_hidden(), generated_seq_len)  ###  input, hidden, generated_seq_len)
+# print(results)
+results = results.numpy().transpose().tolist()
+for l in results:
+    for i in range(len(l)):
+        l[i] = id_2_word[l[i]]
+    print(" ".join(l))
