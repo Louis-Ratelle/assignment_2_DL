@@ -92,31 +92,18 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     # Initialize all the weights uniformly in the range [-0.1, 0.1]
     # and all the biases to 0 (in place)
 
-    # LFPR: Je pense que le _ après une méthode en pytorch le fait en place (https://www.aiworkbox.com/lessons/fill-a-pytorch-tensor-with-a-certain-scalar)
-
-    #self.wx = nn.init.uniform_(self.wx, a=-0.1, b=0.1)
-
-    # LFPR : Est-ce qu'on doit initialiser le embedding ??
     bound = 1 / ((self.hidden_size) ** (0.5))
 
     nn.init.uniform_(self.embedding.weight, -0.1,0.1)
 
     for module in self.wx:
         nn.init.uniform_(module.weight, -bound, bound)
-
-    #self.wh = nn.init.uniform_(self.wh, a=-0.1, b=0.1)
     for module in self.wh:
         nn.init.uniform_(module.weight, -bound, bound)
         nn.init.uniform_(module.bias, -bound, bound)
 
-    #self.wy = nn.init.uniform_(self.wy, a=-0.1, b=0.1)
     nn.init.uniform_(self.wy.weight, -0.1,  0.1)
     nn.init.zeros_(self.wy.bias)
-
-    #self.bh = self.bh.fill_(0.0)
-
-   # self.by = self.by.fill_(0.0)
-
 
   def init_hidden(self):
     # TODO ========================
@@ -125,7 +112,6 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
     This is used for the first mini-batch in an epoch, only.
     """
 
-    # LFPR: Je ne sais pas si on doit utiliser self dans self.hidden
     hidden = torch.zeros([self.num_layers, self.batch_size, self.hidden_size])
     return hidden  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
 
@@ -175,11 +161,11 @@ class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities
       for layer in range(self.num_layers):
         temp = self.wh[layer](hidden[layer])
         if layer == 0:
-          temp2 = temp.add(self.wx[layer](self.dropout(embed[t])))  # ICI Il faut mettre du dropout ici sur embed[t]
+          temp2 = temp.add(self.wx[layer](self.dropout(embed[t])))  
         else:
           temp2 = temp.add(self.wx[layer](last_hidden_below))
 
-        tan_h = torch.nn.Tanh()  # LFPR: tanh ou sigmoid ?
+        tan_h = torch.nn.Tanh()  
         temp2 = tan_h(temp2)
         l_hidden.append(temp2.clone())
         temp2 = self.dropout(temp2)
