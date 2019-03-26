@@ -414,30 +414,6 @@ def run_epoch(model, data, is_train=False, lr=1.0):
         # if iters==3:
         #     break
 
-        # LOSS COMPUTATION
-        # This line currently averages across all the sequences in a mini-batch
-        # and all time-steps of the sequences.
-        # For problem 5.3, you will (instead) need to compute the average loss
-        # at each time-step separately.
-        # loss = loss_fn(outputs.contiguous().view(-1, model.vocab_size), tt)
-        # costs += loss.data.item() * model.seq_len
-        # losses.append(costs)
-        # iters += model.seq_len
-        # if args.debug:
-        #     print(step, loss)
-        # if is_train:  # Only update parameters if training
-        #     loss.backward()
-        #     torch.nn.utils.clip_grad_norm_(model.parameters(), 0.25)
-        #     if args.optimizer == 'ADAM':
-        #         optimizer.step()
-        #     else:
-        #         for p in model.parameters():
-        #             if p.grad is not None:
-        #                 p.data.add_(-lr, p.grad.data)
-        #     if step % (epoch_size // 10) == 10:
-        #         print('step: ' + str(step) + '\t' \
-        #               + 'loss: ' + str(costs) + '\t' \
-        #               + 'speed (wps):' + str(iters * model.batch_size / (time.time() - start_time)))
 
     return loss / iters
 
@@ -486,38 +462,7 @@ for epoch in range(1):
     #     val_loss[i]=val_loss[i]/iters
     # print(val_loss/iters)
 
-    # SAVE MODEL IF IT'S THE BEST SO FAR
-    # if val_ppl < best_val_so_far:
-    #     best_val_so_far = val_ppl
-    #     if args.save_best:
-    #         print("Saving model parameters to best_params.pt")
-    #         torch.save(model.state_dict(), os.path.join(args.save_dir, 'best_params.pt'))
-    # NOTE ==============================================
-    # You will need to load these parameters into the same model
-    # for a couple Problems: so that you can compute the gradient
-    # of the loss w.r.t. hidden state as required in Problem 5.2
-    # and to sample from the the model as required in Problem 5.3
-    # We are not asking you to run on the test data, but if you
-    # want to look at test performance you would load the saved
-    # model and run on the test data with batch_size=1
 
-    # LOC RESULTS
-    # train_ppls.append(train_ppl)
-    # val_ppls.append(val_ppl)
-    # train_losses.extend(train_loss)
-    # val_losses.extend(val_loss)
-    # times.append(time.time() - t0)
-    # log_str = 'epoch: ' + str(epoch) + '\t' \
-    #           + 'train ppl: ' + str(train_ppl) + '\t' \
-    #           + 'val ppl: ' + str(val_ppl) + '\t' \
-    #           + 'best val: ' + str(best_val_so_far) + '\t' \
-    #           + 'time (s) spent in epoch: ' + str(times[-1])
-    # print(log_str)
-    # with open(os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
-    #     f_.write(log_str + '\n')
-    #
-    # writer.add_scalar('train_ppl', train_ppl, epoch)
-    # writer.add_scalar('val_ppl', val_ppl, epoch)
 
 # SAVE LEARNING CURVES
 lc_path = os.path.join(args.save_dir, 'avgloss.npy')
