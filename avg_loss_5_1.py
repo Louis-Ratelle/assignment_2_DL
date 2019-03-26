@@ -440,7 +440,7 @@ else:
 
 # MAIN LOOP
 
-model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
+model.load_state_dict(torch.load(args.load_model))  #, map_location='cpu'))
 # model.to(device) ???
 model.eval()
 print(model)

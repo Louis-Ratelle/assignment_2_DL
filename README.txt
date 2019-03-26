@@ -1,16 +1,36 @@
-J’ai fait uniquement la question 1. Mais vous devriez regarder mon code avec méfiance. Ça marche, mais je ne suis pas certain, surtout qu’une époch prend 23 minutes (sur mon ordi avec cpu).
+IFT6135 - Deep Learning Assignment 2
+March 25, 2019
 
-Dans un des fichiers, il est écrit que nous devrions avoir (Isaac m’a envoyé ces valeurs, je n’ai pas vérifié):
-
- RNN: train:  120  val: 157
- GRU: train:   65  val: 104
- TRANSFORMER:  train:  77  val: 152
-
-Mais pour RNN (problème 1), j’obtiens seulement 390 avec la commande suivante (après 25 epochs et environ 11 heures):
-
-“ python ptb-lm.py --model=RNN --optimizer=SGD_LR_SCHEDULE --initial_lr=1 --batch_size=16  --seq_len=35 --hidden_size=256 --num_layers=2 --dp_keep_prob=0.35 ”
+Lawrence Abdulnour
+Alexandre Marcil
+Louis-François Préville-Ratelle
 
 
-Je n’ai mis aucun dropout (pour RNN Q1, je ne vois pas à quoi sert dropout.
+Q1, Q2, Q3 : models.py
 
-Le principal problème avec Pytorch ici, c’est de bien comprendre comment fonctionne Adagrad. En d’autres termes, quoi utiliser pour comme blocs (torch.tensor, nn.Linear, …?) pour que Pytorch puisse bien faire le backprop automatiquement?
+
+Q4 : use ptb-lm.py to train the models, with desired hyperparameters in arguments.
+
+python ptb-lm.py --model=RNN --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 --save_best
+
+
+Q5 : trained models filename (best_params.pt) must be passed in arguments to load trained models.
+(i.e. with extra argument : ---load_model="best_params.pt")
+
+
+Q5.1 : avg_loss_5_1.py
+
+python avg_loss_5_1.py --model=RNN --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 ---load_model="best_params.pt"
+
+
+Q5.2 : gradients_5_2.py
+
+python gradients_5_2.py --model=RNN --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 ---load_model="best_params.pt"
+
+
+Q5.3 : generate_samples_5_3.py
+
+python generate_samples_5_3.py --model=RNN --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 ---load_model="best_params.pt"
+
+
+

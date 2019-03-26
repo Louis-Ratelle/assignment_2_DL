@@ -1,696 +1,501 @@
-import copy
-import math
 
-import numpy as np
+#!/bin/python
+# coding: utf-8
+
+# Code outline/scaffold for
+# ASSIGNMENT 2: RNNs, Attention, and Optimization
+# By Tegan Maharaj, David Krueger, and Chin-Wei Huang
+# IFT6135 at University of Montreal
+# Winter 2019
+#
+# based on code from:
+#    https://github.com/deeplearningathome/pytorch-language-model/blob/master/reader.py
+#    https://github.com/ceshine/examples/blob/master/word_language_model/main.py
+#    https://github.com/teganmaharaj/zoneout/blob/master/zoneout_word_ptb.py
+#    https://github.com/harvardnlp/annotated-transformer
+
+# GENERAL INSTRUCTIONS:
+#    - ! IMPORTANT!
+#      Unless we're otherwise notified we will run exactly this code, importing
+#      your models from models.py to test them. If you find it necessary to
+#      modify or replace this script (e.g. if you are using TensorFlow), you
+#      must justify this decision in your report, and contact the TAs as soon as
+#      possible to let them know. You are free to modify/add to this script for
+#      your own purposes (e.g. monitoring, plotting, further hyperparameter
+#      tuning than what is required), but remember that unless we're otherwise
+#      notified we will run this code as it is given to you, NOT with your
+#      modifications.
+#    - We encourage you to read and understand this code; there are some notes
+#      and comments to help you.
+#    - Typically, all of your code to submit should be written in models.py;
+#      see further instructions at the top of that file / in TODOs.
+#          - RNN recurrent unit
+#          - GRU recurrent unit
+#          - Multi-head attention for the Transformer
+#    - Other than this file and models.py, you will probably also write two
+#      scripts. Include these and any other code you write in your git repo for
+#      submission:
+#          - Plotting (learning curves, loss w.r.t. time, gradients w.r.t. hiddens)
+#          - Loading and running a saved model (computing gradients w.r.t. hiddens,
+#            and for sampling from the model)
+
+# PROBLEM-SPECIFIC INSTRUCTIONS:
+#    - For Problems 1-3, paste the code for the RNN, GRU, and Multi-Head attention
+#      respectively in your report, in a monospace font.
+#    - For Problem 4.1 (model comparison), the hyperparameter settings you should run are as follows:
+#          --model=RNN --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 --save_best
+#          --model=GRU --optimizer=SGD_LR_SCHEDULE --initial_lr=10 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35 --save_best
+#          --model=TRANSFORMER --optimizer=SGD_LR_SCHEDULE --initial_lr=20 --batch_size=128 --seq_len=35 --hidden_size=512 --num_layers=6 --dp_keep_prob=0.9 --save_best
+#    - In those experiments, you should expect to see approximately the following
+#      perplexities:
+#                  RNN: train:  120  val: 157
+#                  GRU: train:   65  val: 104
+#          TRANSFORMER:  train:  67  val: 146
+#    - For Problem 4.2 (exploration of optimizers), you will make use of the
+#      experiments from 4.1, and should additionally run the following experiments:
+#          --model=RNN --optimizer=SGD --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35
+#          --model=GRU --optimizer=SGD --initial_lr=10 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35
+#          --model=TRANSFORMER --optimizer=SGD --initial_lr=20 --batch_size=128 --seq_len=35 --hidden_size=512 --num_layers=6 --dp_keep_prob=.9
+#          --model=RNN --optimizer=SGD_LR_SCHEDULE --initial_lr=1 --batch_size=20 --seq_len=35 --hidden_size=512 --num_layers=2 --dp_keep_prob=0.35
+#          --model=GRU --optimizer=ADAM --initial_lr=0.0001 --batch_size=20 --seq_len=35 --hidden_size=1500 --num_layers=2 --dp_keep_prob=0.35
+#          --model=TRANSFORMER --optimizer=ADAM --initial_lr=0.001 --batch_size=128 --seq_len=35 --hidden_size=512 --num_layers=2 --dp_keep_prob=.9
+#    - For Problem 4.3 (exloration of hyperparameters), do your best to get
+#      better validation perplexities than the settings given for 4.1. You may
+#      try any combination of the hyperparameters included as arguments in this
+#      script's ArgumentParser, but do not implement any additional
+#      regularizers/features. You may (and will probably want to) run a lot of
+#      different things for just 1-5 epochs when you are trying things out, but
+#      you must report at least 3 experiments on each architecture that have run
+#      for at least 40 epochs.
+#    - For Problem 5, perform all computations / plots based on saved models
+#      from Problem 4.1. NOTE this means you don't have to save the models for
+#      your exploration, which can make things go faster. (Of course
+#      you can still save them if you like; just add the flag --save_best).
+#    - For Problem 5.1, you can modify the loss computation in this script
+#      (search for "LOSS COMPUTATION" to find the appropriate line. Remember to
+#      submit your code.
+#    - For Problem 5.3, you must implement the generate method of the RNN and
+#      GRU.  Implementing this method is not considered part of problems 1/2
+#      respectively, and will be graded as part of Problem 5.3
+
+
+import argparse
+import time
+import collections
+import os
+import sys
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import torch.nn
 from torch.autograd import Variable
-from torch.distributions.categorical import Categorical
-
+import torch.nn as nn
+import numpy as np
 import pdb
 
-
-# import matplotlib.pyplot as plt
-
-# import pdb
-
 # NOTE ==============================================
-#
-# Fill in code for every method which has a TODO
-#
-# Your implementation should use the contract (inputs
-# and outputs) given for each model, because that is
-# what the main script expects. If you modify the contract,
-# you must justify that choice, note it in your report, and notify the TAs
-# so that we run the correct code.
-#
-# You may modify the internals of the RNN and GRU classes
-# as much as you like, except you must keep the methods
-# in each (init_weights_uniform, init_hidden, and forward)
-# Using nn.Module and "forward" tells torch which
-# parameters are involved in the forward pass, so that it
-# can correctly (automatically) set up the backward pass.
-#
-# You should not modify the interals of the Transformer
-# except where indicated to implement the multi-head
-# attention.
+# This is where your models are imported
+from models import RNN, GRU
+from models import make_model as TRANSFORMER
 
-
-def clones(module, N):
-    "A helper function for producing N identical layers (each with their own parameters)."
-    return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
-
-# Problem 1
-class RNN(nn.Module): # Implement a stacked vanilla RNN with Tanh nonlinearities.
-  def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
-    """
-    emb_size:     The number of units in the input embeddings
-    hidden_size:  The number of hidden units per layer
-    seq_len:      The length of the input sequences
-    vocab_size:   The number of tokens in the vocabulary (10,000 for Penn TreeBank)
-    num_layers:   The depth of the stack (i.e. the number of hidden layers at
-                  each time-step)
-    dp_keep_prob: The probability of *not* dropping out units in the
-                  non-recurrent connections.
-                  Do not apply dropout on recurrent connections.
-    """
-    super(RNN, self).__init__()
-
-    # TODO ========================
-    # Initialization of the parameters of the recurrent and fc layers.
-    # Your implementation should support any number of stacked hidden layers
-    # (specified by num_layers), use an input embedding layer, and include fully
-    # connected layers with dropout after each recurrent layer.
-    # Note: you may use pytorch's nn.Linear, nn.Dropout, and nn.Embedding
-    # modules, but not recurrent modules.
-    #
-    # To create a variable number of parameter tensors and/or nn.Modules
-    # (for the stacked hidden layer), you may need to use nn.ModuleList or the
-    # provided clones function (as opposed to a regular python list), in order
-    # for Pytorch to recognize these parameters as belonging to this nn.Module
-    # and compute their gradients automatically. You're not obligated to use the
-    # provided clones function.
-
-    self.emb_size = emb_size
-    self.hidden_size = hidden_size
-    self.seq_len = seq_len
-    self.batch_size = batch_size
-    self.vocab_size = vocab_size
-    self.num_layers = num_layers
-    self.dp_keep_prob = dp_keep_prob
-    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
-    self.dropout = nn.Dropout(1 - self.dp_keep_prob)
-    self.wx = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias = False)])
-    self.wx.extend([nn.Linear(self.hidden_size, self.hidden_size, bias = False) for _ in range(1, self.num_layers )])
-    self.wh = clones(nn.Linear(self.hidden_size, self.hidden_size, bias= True), self.num_layers)
-    self.wy = nn.Linear(self.hidden_size, self.vocab_size, bias = True)
-    self.init_weights_uniform()
-
-
-  def init_weights_uniform(self):
-    #pass
-    # TODO ========================
-    # Initialize all the weights uniformly in the range [-0.1, 0.1]
-    # and all the biases to 0 (in place)
-
-    bound = 1 / ((self.hidden_size) ** (0.5))
-
-    nn.init.uniform_(self.embedding.weight, -0.1,0.1)
-
-    for module in self.wx:
-        nn.init.uniform_(module.weight, -bound, bound)
-    for module in self.wh:
-        nn.init.uniform_(module.weight, -bound, bound)
-        nn.init.uniform_(module.bias, -bound, bound)
-
-    nn.init.uniform_(self.wy.weight, -0.1,  0.1)
-    nn.init.zeros_(self.wy.bias)
-
-  def init_hidden(self):
-    # TODO ========================
-    # initialize the hidden states to zero
-    """
-    This is used for the first mini-batch in an epoch, only.
-    """
-
-    hidden = torch.zeros([self.num_layers, self.batch_size, self.hidden_size])
-    return hidden  # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
-
-  def forward(self, inputs, hidden):
-    # TODO ========================
-    # Compute the forward pass, using a nested python for loops.
-    # The outer for loop should iterate over timesteps, and the
-    # inner for loop should iterate over hidden layers of the stack.
-    #
-    # Within these for loops, use the parameter tensors and/or nn.modules you
-    # created in __init__ to compute the recurrent updates according to the
-    # equations provided in the .tex of the assignment.
-    #
-    # Note that those equations are for a single hidden-layer RNN, not a stacked
-    # RNN. For a stacked RNN, the hidden states of the l-th layer are used as
-    # inputs to to the {l+1}-st layer (taking the place of the input sequence).
-
-    """
-    Arguments:
-        - inputs: A mini-batch of input sequences, composed of integers that
-                    represent the index of the current token(s) in the vocabulary.
-                        shape: (seq_len, batch_size)
-        - hidden: The initial hidden states for every layer of the stacked RNN.
-                        shape: (num_layers, batch_size, hidden_size)
-    Returns:
-        - Logits for the softmax over output tokens at every time-step.
-              **Do NOT apply softmax to the outputs!**
-              Pytorch's CrossEntropyLoss function (applied in ptb-lm.py) does
-              this computation implicitly.
-                    shape: (seq_len, batch_size, vocab_size)
-        - The final hidden states for every layer of the stacked RNN.
-              These will be used as the initial hidden states for all the
-              mini-batches in an epoch, except for the first, where the return
-              value of self.init_hidden will be used.
-              See the repackage_hiddens function in ptb-lm.py for more details,
-              if you are curious.
-                    shape: (num_layers, batch_size, hidden_size)
-    """
-    l_logits = []
-
-    embed = self.embedding(inputs)
-    hidden_timesteps = []
-
-    for t in range(self.seq_len):
-
-      l_hidden = []
-      for layer in range(self.num_layers):
-        temp = self.wh[layer](hidden[layer])
-        if layer == 0:
-          temp2 = temp.add(self.wx[layer](self.dropout(embed[t])))
-        else:
-          temp2 = temp.add(self.wx[layer](last_hidden_below))
-
-        tan_h = torch.nn.Tanh()
-        temp2 = tan_h(temp2)
-        l_hidden.append(temp2.clone())
-        temp2 = self.dropout(temp2)
-        last_hidden_below = temp2.clone()
-      hidden_timesteps.append(l_hidden)
-      hidden = torch.stack(l_hidden)
-
-      l_logits.append(self.wy(last_hidden_below.clone()))
-    logits= torch.stack(l_logits)
-    return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden, hidden_timesteps
-
-  def generate(self, input, hidden, generated_seq_len):
-    # TODO ========================
-    # Compute the forward pass, as in the self.forward method (above).
-    # You'll probably want to copy substantial portions of that code here.
-    #
-    # We "seed" the generation by providing the first inputs.
-    # Subsequent inputs are generated by sampling from the output distribution,
-    # as described in the tex (Problem 5.3)
-    # Unlike for self.forward, you WILL need to apply the softmax activation
-    # function here in order to compute the parameters of the categorical
-    # distributions to be sampled from at each time-step.
-
-    """
-    Arguments:
-        - input: A mini-batch of input tokens (NOT sequences!)
-                        shape: (batch_size)
-        - hidden: The initial hidden states for every layer of the stacked RNN.
-                        shape: (num_layers, batch_size, hidden_size)
-        - generated_seq_len: The length of the sequence to generate.
-                       Note that this can be different than the length used
-                       for training (self.seq_len)
-    Returns:
-        - Sampled sequences of tokens
-                    shape: (generated_seq_len, batch_size)
-    """
-
-    l_samples = [input]
-
-    for t in range(1, generated_seq_len):
-        l_hidden = []
-        for layer in range(self.num_layers):
-            embed = self.embedding(input)
-            temp = self.wh[layer](hidden[layer])
-            if layer == 0:
-                temp2 = temp.add(self.wx[layer](self.dropout(embed)))
-            else:
-                temp2 = temp.add(self.wx[layer](last_hidden_below))
-
-            tan_h = torch.nn.Tanh()
-            temp2 = tan_h(temp2)
-            l_hidden.append(temp2.clone())
-            temp2 = self.dropout(temp2)
-            last_hidden_below = temp2.clone()
-        hidden = torch.stack(l_hidden)
-
-        preactivations = self.wy(last_hidden_below.clone())
-        softm = nn.Softmax(dim=1)
-        probs = softm(preactivations)
-        m = Categorical(probs)
-        sortie = m.sample()
-        l_samples.append(sortie)
-        input = sortie
-
-    samples = torch.stack(l_samples)
-
-    return samples
-
-
-# Problem 2
-class GRU(nn.Module): # Implement a stacked GRU RNN
-  """
-  Follow the same instructions as for RNN (above), but use the equations for
-  GRU, not Vanilla RNN.
-  """
-  def __init__(self, emb_size, hidden_size, seq_len, batch_size, vocab_size, num_layers, dp_keep_prob):
-    super(GRU, self).__init__()
-
-    # TODO ========================
-
-    self.emb_size = emb_size
-    self.hidden_size = hidden_size
-    self.seq_len = seq_len
-    self.batch_size = batch_size
-    self.vocab_size = vocab_size
-    self.num_layers = num_layers
-    self.dp_keep_prob = dp_keep_prob
-
-    self.embedding = nn.Embedding(self.vocab_size, self.emb_size)
-
-    self.dropout = nn.Dropout(1 - self.dp_keep_prob)
-
-    self.wr = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
-    self.wr.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
-    self.ur = clones(nn.Linear(self.hidden_size, self.hidden_size, bias= True), self.num_layers)
-    self.sigma_r = torch.nn.Sigmoid()
-
-    self.wz = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
-    self.wz.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
-    self.uz = clones(nn.Linear(self.hidden_size, self.hidden_size, bias=True), self.num_layers)
-    self.sigma_z = torch.nn.Sigmoid()
-
-    self.wh = nn.ModuleList([nn.Linear(self.emb_size, self.hidden_size, bias=False)])
-    self.wh.extend([nn.Linear(self.hidden_size, self.hidden_size, bias=False) for _ in range(1, self.num_layers)])
-    self.uh = clones(nn.Linear(self.hidden_size, self.hidden_size, bias=True), self.num_layers)
-    self.Tanh_h = torch.nn.Tanh()
-
-    self.wy = nn.Linear(self.hidden_size, self.vocab_size, bias=True)
-
-    self.init_weights_uniform()
-
-
-  def init_weights_uniform(self):
-    #pass
-    bound = 1 / ((self.hidden_size) ** (0.5))
-
-    nn.init.uniform_(self.embedding.weight, -0.1, 0.1)
-
-    for module in self.wr:
-        nn.init.uniform_(module.weight, -bound, bound)
-    for module in self.ur:
-        nn.init.uniform_(module.weight, -bound, bound)
-        nn.init.uniform_(module.bias, -bound, bound)
-
-    for module in self.wz:
-        nn.init.uniform_(module.weight, -bound, bound)
-    for module in self.uz:
-        nn.init.uniform_(module.weight, -bound, bound)
-        nn.init.uniform_(module.bias, -bound, bound)
-
-    for module in self.wh:
-        nn.init.uniform_(module.weight, -bound, bound)
-    for module in self.uh:
-        nn.init.uniform_(module.weight, -bound, bound)
-        nn.init.uniform_(module.bias, -bound, bound)
-
-    nn.init.uniform_(self.wy.weight, -0.1, 0.1)
-    nn.init.zeros_(self.wy.bias)
-
-
-  def init_hidden(self):
-    # TODO ========================
-    hidden = torch.zeros([self.num_layers, self.batch_size, self.hidden_size])
-    return hidden # a parameter tensor of shape (self.num_layers, self.batch_size, self.hidden_size)
-
-  def forward(self, inputs, hidden):
-    # TODO ========================
-
-    l_logits = []
-    embed = self.embedding(inputs)
-    hidden_timesteps = []
-    for t in range(self.seq_len):
-
-        l_hidden = []
-        for layer in range(self.num_layers):
-            if layer == 0:
-                x = self.dropout(embed[t])
-            else:
-                x = last_hidden_below
-
-            rt = self.sigma_r(self.wr[layer](x) + self.ur[layer](hidden[layer]))
-            zt = self.sigma_z(self.wz[layer](x) + self.uz[layer](hidden[layer]))
-            h_tilde_t =  self.Tanh_h(self.wh[layer](x) + self.uh[layer](rt * hidden[layer]))
-            ht = (1-zt) * hidden[layer]  + zt * h_tilde_t
-            l_hidden.append(ht.clone())
-            last_hidden_below = self.dropout(ht).clone()
-        hidden = torch.stack(l_hidden)
-        l_logits.append(self.wy(last_hidden_below))
-    logits = torch.stack(l_logits)
-    return logits.view(self.seq_len, self.batch_size, self.vocab_size), hidden, hidden_timesteps
-
-  def generate(self, input, hidden, generated_seq_len):
-    # TODO ========================
-
-    l_samples = [input]
-
-    for t in range(1, generated_seq_len):
-        l_hidden = []
-        for layer in range(self.num_layers):
-            if layer == 0:
-                x = self.dropout(self.embedding(input))
-            else:
-                x = last_hidden_below
-
-            rt = self.sigma_r(self.wr[layer](x) + self.ur[layer](hidden[layer]))
-            zt = self.sigma_z(self.wz[layer](x) + self.uz[layer](hidden[layer]))
-            h_tilde_t = self.Tanh_h(self.wh[layer](x) + self.uh[layer](rt * hidden[layer]))
-            ht = (1 - zt) * hidden[layer] + zt * h_tilde_t
-            l_hidden.append(ht.clone())
-            last_hidden_below = self.dropout(ht).clone()
-        hidden = torch.stack(l_hidden)
-        preactivations = self.wy(last_hidden_below.clone())
-        softm = nn.Softmax(dim=1)
-        probs = softm(preactivations)
-        m = Categorical(probs)
-        sortie = m.sample()
-        l_samples.append(sortie)
-        input = sortie
-    samples = torch.stack(l_samples)
-    return samples
-
-
-# Problem 3
 ##############################################################################
 #
-# Code for the Transformer model
+# ARG PARSING AND EXPERIMENT SETUP
 #
 ##############################################################################
 
-"""
-Implement the MultiHeadedAttention module of the transformer architecture.
-All other necessary modules have already been implemented for you.
-We're building a transfomer architecture for next-step prediction tasks, and
-applying it to sequential language modelling. We use a binary "mask" to specify
-which time-steps the model can use for the current prediction.
-This ensures that the model only attends to previous time-steps.
-The model first encodes inputs using the concatenation of a learned WordEmbedding
-and a (in our case, hard-coded) PositionalEncoding.
-The word embedding maps a word's one-hot encoding into a dense real vector.
-The positional encoding 'tags' each element of an input sequence with a code that
-identifies it's position (i.e. time-step).
-These encodings of the inputs are then transformed repeatedly using multiple
-copies of a TransformerBlock.
-This block consists of an application of MultiHeadedAttention, followed by a
-standard MLP; the MLP applies *the same* mapping at every position.
-Both the attention and the MLP are applied with Resnet-style skip connections,
-and layer normalization.
-The complete model consists of the embeddings, the stacked transformer blocks,
-and a linear layer followed by a softmax.
-"""
+parser = argparse.ArgumentParser(description='PyTorch Penn Treebank Language Modeling')
 
-#This code has been modified from an open-source project, by David Krueger.
-#The original license is included below:
-#MIT License
+# Arguments you may need to set to run different experiments in 4.1 & 4.2.
+parser.add_argument('--data', type=str, default='data',
+                    help='location of the data corpus')
+parser.add_argument('--model', type=str, default='GRU',
+                    help='type of recurrent net (RNN, GRU, TRANSFORMER)')
+parser.add_argument('--optimizer', type=str, default='SGD_LR_SCHEDULE',
+                    help='optimization algo to use; SGD, SGD_LR_SCHEDULE, ADAM')
+parser.add_argument('--seq_len', type=int, default=35,
+                    help='number of timesteps over which BPTT is performed')
+parser.add_argument('--batch_size', type=int, default=20,
+                    help='size of one minibatch')
+parser.add_argument('--initial_lr', type=float, default=20.0,
+                    help='initial learning rate')
+parser.add_argument('--hidden_size', type=int, default=200,
+                    help='size of hidden layers. IMPORTANT: for the transformer\
+                    this must be a multiple of 16.')
+parser.add_argument('--save_best', action='store_true',
+                    help='save the model for the best validation performance')
+parser.add_argument('--num_layers', type=int, default=2,
+                    help='number of hidden layers in RNN/GRU, or number of transformer blocks in TRANSFORMER')
+
+# Other hyperparameters you may want to tune in your exploration
+parser.add_argument('--emb_size', type=int, default=200,
+                    help='size of word embeddings')
+parser.add_argument('--num_epochs', type=int, default=40,
+                    help='number of epochs to stop after')
+parser.add_argument('--dp_keep_prob', type=float, default=0.35,
+                    help='dropout *keep* probability. drop_prob = 1-dp_keep_prob \
+                    (dp_keep_prob=1 means no dropout)')
+
+parser.add_argument('--load_model', type=str, default='',
+                    help='path to model to load')
+
+# Arguments that you may want to make use of / implement more code for
+parser.add_argument('--debug', action='store_true')
+parser.add_argument('--save_dir', type=str, default='',
+                    help='path to save the experimental config, logs, model \
+                    This is automatically generated based on the command line \
+                    arguments you pass and only needs to be set if you want a \
+                    custom dir name')
+parser.add_argument('--evaluate', action='store_true',
+                    help="use this flag to run on the test set. Only do this \
+                    ONCE for each model setting, and only after you've \
+                    completed ALL hyperparameter tuning on the validation set.\
+                    Note we are not requiring you to do this.")
+
+# DO NOT CHANGE THIS (setting the random seed makes experiments deterministic,
+# which helps for reproducibility)
+parser.add_argument('--seed', type=int, default=1111,
+                    help='random seed')
+
+args = parser.parse_args()
+argsdict = args.__dict__
+argsdict['code_file'] = sys.argv[0]
+
+# Use the model, optimizer, and the flags passed to the script to make the
+# name for the experimental dir
+print("\n########## Setting Up Experiment ######################")
+flags = [flag.lstrip('--') for flag in sys.argv[1:-1]]
+experiment_path = os.path.join(args.save_dir + '_'.join([argsdict['model'],
+                                                         argsdict['optimizer']]
+                                                        + flags))
+
+# Increment a counter so that previous results with the same args will not
+# be overwritten. Comment out the next four lines if you only want to keep
+# the most recent results.
+i = 0
+while os.path.exists(experiment_path + "_" + str(i)):
+    i += 1
+experiment_path = experiment_path + "_" + str(i)
+
+# Creates an experimental directory and dumps all the args to a text file
+os.mkdir(experiment_path)
+print("\nPutting log in %s" % experiment_path)
+argsdict['save_dir'] = experiment_path
+with open(os.path.join(experiment_path, 'exp_config.txt'), 'w') as f:
+    for key in sorted(argsdict):
+        f.write(key + '    ' + str(argsdict[key]) + '\n')
+
+# Set the random seed manually for reproducibility.
+torch.manual_seed(args.seed)
+
+# Use the GPU if you have one
+if torch.cuda.is_available():
+    print("Using the GPU")
+    device = torch.device("cuda")
+else:
+    print("WARNING: You are about to run on cpu, and this will likely run out \
+      of memory. \n You can try setting batch_size=1 to reduce memory usage")
+    device = torch.device("cpu")
+
+
+###############################################################################
 #
-#Copyright (c) 2018 Alexander Rush
+# DATA LOADING & PROCESSING
 #
-#Permission is hereby granted, free of charge, to any person obtaining a copy
-#of this software and associated documentation files (the "Software"), to deal
-#in the Software without restriction, including without limitation the rights
-#to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-#copies of the Software, and to permit persons to whom the Software is
-#furnished to do so, subject to the following conditions:
-#
-#The above copyright notice and this permission notice shall be included in all
-#copies or substantial portions of the Software.
-#
-#THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-#IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-#FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-#AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-#LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-#OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-#SOFTWARE.
+###############################################################################
+
+# HELPER FUNCTIONS
+def _read_words(filename):
+    with open(filename, "r") as f:
+        return f.read().replace("\n", "<eos>").split()
 
 
+def _build_vocab(filename):
+    data = _read_words(filename)
 
-#----------------------------------------------------------------------------------
+    counter = collections.Counter(data)
+    count_pairs = sorted(counter.items(), key=lambda x: (-x[1], x[0]))
 
-# TODO: implement this class
-class MultiHeadedAttention(nn.Module):
-    def __init__(self, n_heads, n_units, dropout=0.1):
-        """
-        n_heads: the number of attention heads
-        n_units: the number of output units
-        dropout: probability of DROPPING units
-        """
+    words, _ = list(zip(*count_pairs))
+    word_to_id = dict(zip(words, range(len(words))))
+    id_to_word = dict((v, k) for k, v in word_to_id.items())
 
-        # TODO: create/initialize any necessary parameters or layers
-        # Initialize all weights and biases uniformly in the range [-k, k],
-        # where k is the square root of 1/n_units.
-        # Note: the only Pytorch modules you are allowed to use are nn.Linear
-        # and nn.Dropout
-
-        super(MultiHeadedAttention, self).__init__()
-
-        # This sets the size of the keys, values, and queries (self.d_k) to all
-        # be equal to the number of output units divided by the number of heads.
-        self.d_k = n_units // n_heads
-
-        # This requires the number of n_heads to evenly divide n_units.
-        assert n_units % n_heads == 0
-        self.n_heads = n_heads
-        self.n_units = n_units
-        self.dropout = nn.Dropout(dropout)
-        self.tfm = clones(nn.Linear(n_units, n_units), 4)
-        self.initialize_params()
-
-    def initialize_params(self):
-        """
-        Method to initialize all weights and biases uniformly in the range
-        [-k, k] of all layers of a 'ModuleList',
-        where k is the square root of 1/n_units.
-        """
-
-        bound = 1 / ((self.n_units) ** (0.5))
-
-        for module in self.tfm:
-            nn.init.uniform_(module.weight, -bound, bound)
-            nn.init.uniform_(module.bias, -bound, bound)
-        #pdb.set_trace()
+    return word_to_id, id_to_word
 
 
-    @staticmethod
-    def attention(query, key, value, mask=None, dropout=None):
-      """
-      Static method for computing the 'Scaled Dot Product Attention'.
-      """
-      d_k = query.size(-1)
-
-      attn = torch.matmul(query, key.transpose(-2, -1)) \
-               / math.sqrt(d_k)
-
-      #attn = torch.exp(attn)
-
-      if mask is not None:
-
-          attn = attn.masked_fill(mask == 0, -10e9)
-          #attn = attn*mask - 10e9*(torch.ones(mask.size())-mask)
-
-      #attn = attn / attn.sum(-1, keepdim=True)
-      attn = F.softmax(attn, dim = -1)
-
-      if dropout is not None:
-          attn = dropout(attn)
-      return torch.matmul(attn, value), attn
-
-    def forward(self, query, key, value, mask=None):
-
-        # TODO: implement the masked multi-head attention.
-        # query,key and value all have size: (batch_size, seq_len, self.n_units)
-        # mask has size: (batch_size, seq_len, seq_len)
-        # As described in the .tex, apply input masking to the softmax
-        # generating the "attention values" (i.e. A_i in the .tex)
-        # Also apply dropout to the attention values.
-
-          if mask is not None:
-              # Same mask applied to all h heads.
-              mask = mask.unsqueeze(1)
-
-          nbatches = query.size(0)
-
-          # 1) Execute linear projections in batch from n_units => n_heads x d_k
-          query, key, value = \
-              [l(x).view(nbatches, -1, self.n_heads, self.d_k).transpose(1, 2)
-               for l, x in zip(self.tfm, (query, key, value))]
-
-          # 2) Apply attention on all the projected vectors in batch.
-          A, self.attn = self.attention(query, key, value, mask=mask,
-                                   dropout=self.dropout)
-
-          # 3) "Concat" using a view and apply a final linear.
-          A = A.transpose(1, 2).contiguous() \
-               .view(nbatches, -1, self.n_heads * self.d_k)
-
-          return self.tfm[-1](A) # size: (batch, Seq_len, n_units)
-
-#----------------------------------------------------------------------------------
-# The encodings of elements of the input sequence
-
-class WordEmbedding(nn.Module):
-    def __init__(self, n_units, vocab):
-        super(WordEmbedding, self).__init__()
-        self.lut = nn.Embedding(vocab, n_units)
-        self.n_units = n_units
-
-    def forward(self, x):
-        #print (x)
-        return self.lut(x) * math.sqrt(self.n_units)
+def _file_to_word_ids(filename, word_to_id):
+    data = _read_words(filename)
+    return [word_to_id[word] for word in data if word in word_to_id]
 
 
-class PositionalEncoding(nn.Module):
-    def __init__(self, n_units, dropout, max_len=5000):
-        super(PositionalEncoding, self).__init__()
-        self.dropout = nn.Dropout(p=dropout)
+# Processes the raw data from text files
+def ptb_raw_data(data_path=None, prefix="ptb"):
+    train_path = os.path.join(data_path, prefix + ".train.txt")
+    valid_path = os.path.join(data_path, prefix + ".valid.txt")
+    test_path = os.path.join(data_path, prefix + ".test.txt")
 
-        # Compute the positional encodings once in log space.
-        pe = torch.zeros(max_len, n_units)
-        position = torch.arange(0, max_len).unsqueeze(1).float()
-        div_term = torch.exp(torch.arange(0, n_units, 2).float() *
-                             -(math.log(10000.0) / n_units))
-        pe[:, 0::2] = torch.sin(position * div_term)
-        pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
-
-    def forward(self, x):
-        x = x + Variable(self.pe[:, :x.size(1)],
-                         requires_grad=False)
-        return self.dropout(x)
+    word_to_id, id_2_word = _build_vocab(train_path)
+    train_data = _file_to_word_ids(train_path, word_to_id)
+    valid_data = _file_to_word_ids(valid_path, word_to_id)
+    test_data = _file_to_word_ids(test_path, word_to_id)
+    return train_data, valid_data, test_data, word_to_id, id_2_word
 
 
+# Yields minibatches of data
+def ptb_iterator(raw_data, batch_size, num_steps):
+    raw_data = np.array(raw_data, dtype=np.int32)
 
-#----------------------------------------------------------------------------------
-# The TransformerBlock and the full Transformer
+    data_len = len(raw_data)
+    batch_len = data_len // batch_size
+    data = np.zeros([batch_size, batch_len], dtype=np.int32)
+    for i in range(batch_size):
+        data[i] = raw_data[batch_len * i:batch_len * (i + 1)]
 
+    epoch_size = (batch_len - 1) // num_steps
 
-class TransformerBlock(nn.Module):
-    def __init__(self, size, self_attn, feed_forward, dropout):
-        super(TransformerBlock, self).__init__()
-        self.size = size
-        self.self_attn = self_attn
-        self.feed_forward = feed_forward
-        self.sublayer = clones(ResidualSkipConnectionWithLayerNorm(size, dropout), 2)
+    if epoch_size == 0:
+        raise ValueError("epoch_size == 0, decrease batch_size or num_steps")
 
-    def forward(self, x, mask):
-        x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask)) # apply the self-attention
-        return self.sublayer[1](x, self.feed_forward) # apply the position-wise MLP
+    for i in range(epoch_size):
+        x = data[:, i * num_steps:(i + 1) * num_steps]
+        y = data[:, i * num_steps + 1:(i + 1) * num_steps + 1]
+        yield (x, y)
 
-
-class TransformerStack(nn.Module):
-    """
-    This will be called on the TransformerBlock (above) to create a stack.
-    """
-    def __init__(self, layer, n_blocks): # layer will be TransformerBlock (below)
-        super(TransformerStack, self).__init__()
-        self.layers = clones(layer, n_blocks)
-        self.norm = LayerNorm(layer.size)
-
-    def forward(self, x, mask):
-        for layer in self.layers:
-            x = layer(x, mask)
-        return self.norm(x)
-
-
-class FullTransformer(nn.Module):
-    def __init__(self, transformer_stack, embedding, n_units, vocab_size):
-        super(FullTransformer, self).__init__()
-        self.transformer_stack = transformer_stack
-        self.embedding = embedding
-        self.output_layer = nn.Linear(n_units, vocab_size)
-
-    def forward(self, input_sequence, mask):
-        embeddings = self.embedding(input_sequence)
-        return F.log_softmax(self.output_layer(self.transformer_stack(embeddings, mask)), dim=-1)
-
-
-def make_model(vocab_size, n_blocks=6,
-               n_units=512, n_heads=16, dropout=0.1):
-    "Helper: Construct a model from hyperparameters."
-    c = copy.deepcopy
-    attn = MultiHeadedAttention(n_heads, n_units)
-    ff = MLP(n_units, dropout)
-    position = PositionalEncoding(n_units, dropout)
-    model = FullTransformer(
-        transformer_stack=TransformerStack(TransformerBlock(n_units, c(attn), c(ff), dropout), n_blocks),
-        embedding=nn.Sequential(WordEmbedding(n_units, vocab_size), c(position)),
-        n_units=n_units,
-        vocab_size=vocab_size
-        )
-
-    # Initialize parameters with Glorot / fan_avg.
-    for p in model.parameters():
-        if p.dim() > 1:
-            nn.init.xavier_uniform_(p)
-    return model
-
-
-#----------------------------------------------------------------------------------
-# Data processing
-
-def subsequent_mask(size):
-    """ helper function for creating the masks. """
-    attn_shape = (1, size, size)
-    subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
-    return torch.from_numpy(subsequent_mask) == 0
 
 class Batch:
-    "Object for holding a batch of data with mask during training."
-    def __init__(self, x, pad=0):
+    "Data processing for the transformer. This class adds a mask to the data."
+
+    def __init__(self, x, pad=-1):
         self.data = x
         self.mask = self.make_mask(self.data, pad)
 
     @staticmethod
     def make_mask(data, pad):
         "Create a mask to hide future words."
+
+        def subsequent_mask(size):
+            """ helper function for creating the masks. """
+            attn_shape = (1, size, size)
+            subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
+            return torch.from_numpy(subsequent_mask) == 0
+
         mask = (data != pad).unsqueeze(-2)
         mask = mask & Variable(
             subsequent_mask(data.size(-1)).type_as(mask.data))
         return mask
 
 
-#----------------------------------------------------------------------------------
-# Some standard modules
+# LOAD DATA
+print('Loading data from ' + args.data)
+raw_data = ptb_raw_data(data_path=args.data)
+train_data, valid_data, test_data, word_to_id, id_2_word = raw_data
+vocab_size = len(word_to_id)
+print('  vocabulary size: {}'.format(vocab_size))
 
-class LayerNorm(nn.Module):
-    "layer normalization, as in: https://arxiv.org/abs/1607.06450"
-    def __init__(self, features, eps=1e-6):
-        super(LayerNorm, self).__init__()
-        self.a_2 = nn.Parameter(torch.ones(features))
-        self.b_2 = nn.Parameter(torch.zeros(features))
-        self.eps = eps
+###############################################################################
+#
+# MODEL SETUP
+#
+###############################################################################
 
-    def forward(self, x):
-        mean = x.mean(-1, keepdim=True)
-        std = x.std(-1, keepdim=True)
-        return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
+# NOTE ==============================================
+# This is where your model code will be called. You may modify this code
+# if required for your implementation, but it should not typically be necessary,
+# and you must let the TAs know if you do so.
+if args.model == 'RNN':
+    model = RNN(emb_size=args.emb_size, hidden_size=args.hidden_size,
+                seq_len=args.seq_len, batch_size=args.batch_size,
+                vocab_size=vocab_size, num_layers=args.num_layers,
+                dp_keep_prob=args.dp_keep_prob)
+elif args.model == 'GRU':
+    model = GRU(emb_size=args.emb_size, hidden_size=args.hidden_size,
+                seq_len=args.seq_len, batch_size=args.batch_size,
+                vocab_size=vocab_size, num_layers=args.num_layers,
+                dp_keep_prob=args.dp_keep_prob)
+elif args.model == 'TRANSFORMER':
+    if args.debug:  # use a very small model
+        model = TRANSFORMER(vocab_size=vocab_size, n_units=16, n_blocks=2)
+    else:
+        # Note that we're using num_layers and hidden_size to mean slightly
+        # different things here than in the RNNs.
+        # Also, the Transformer also has other hyperparameters
+        # (such as the number of attention heads) which can change it's behavior.
+        model = TRANSFORMER(vocab_size=vocab_size, n_units=args.hidden_size,
+                            n_blocks=args.num_layers, dropout=1. - args.dp_keep_prob)
+        # these 3 attributes don't affect the Transformer's computations;
+    # they are only used in run_epoch
+    model.batch_size = args.batch_size
+    model.seq_len = args.seq_len
+    model.vocab_size = vocab_size
+else:
+    print("Model type not recognized.")
+
+model = model.to(device)
+
+# LOSS FUNCTION
+loss_fn = nn.CrossEntropyLoss()
+if args.optimizer == 'ADAM':
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.initial_lr)
+
+# LEARNING RATE SCHEDULE
+lr = args.initial_lr
+lr_decay_base = 1 / 1.15
+m_flat_lr = 14.0  # we will not touch lr for the first m_flat_lr epochs
 
 
-class ResidualSkipConnectionWithLayerNorm(nn.Module):
+###############################################################################
+#
+# DEFINE COMPUTATIONS FOR PROCESSING ONE EPOCH
+#
+###############################################################################
+
+def repackage_hidden(h):
     """
-    A residual connection followed by a layer norm.
-    Note for code simplicity the norm is first as opposed to last.
+    Wraps hidden states in new Tensors, to detach them from their history.
+    This prevents Pytorch from trying to backpropagate into previous input
+    sequences when we use the final hidden states from one mini-batch as the
+    initial hidden states for the next mini-batch.
+    Using the final hidden states in this way makes sense when the elements of
+    the mini-batches are actually successive subsequences in a set of longer sequences.
+    This is the case with the way we've processed the Penn Treebank dataset.
     """
-    def __init__(self, size, dropout):
-        super(ResidualSkipConnectionWithLayerNorm, self).__init__()
-        self.norm = LayerNorm(size)
-        self.dropout = nn.Dropout(dropout)
-
-    def forward(self, x, sublayer):
-        "Apply residual connection to any sublayer with the same size."
-        return x + self.dropout(sublayer(self.norm(x)))
+    if isinstance(h, Variable):
+        return h.detach_()
+    else:
+        return tuple(repackage_hidden(v) for v in h)
 
 
-class MLP(nn.Module):
+def run_epoch(model, data, is_train=False, lr=1.0):
     """
-    This is just an MLP with 1 hidden layer
+    One epoch of training/validation (depending on flag is_train).
     """
-    def __init__(self, n_units, dropout=0.1):
-        super(MLP, self).__init__()
-        self.w_1 = nn.Linear(n_units, 2048)
-        self.w_2 = nn.Linear(2048, n_units)
-        self.dropout = nn.Dropout(dropout)
+    if is_train:
+        model.train()
+    else:
+        model.eval()
+    epoch_size = ((len(data) // model.batch_size) - 1) // model.seq_len
+    start_time = time.time()
+    if args.model != 'TRANSFORMER':
+        hidden = model.init_hidden()
+        hidden = hidden.to(device)
+    costs = 0.0
+    iters = 0
+    losses = []
 
-    def forward(self, x):
-        return self.w_2(self.dropout(F.relu(self.w_1(x))))
+    loss = np.zeros(model.seq_len)
+
+    # LOOP THROUGH MINIBATCHES
+    for step, (x, y) in enumerate(ptb_iterator(data, model.batch_size, model.seq_len)):
+        if args.model == 'TRANSFORMER':
+            batch = Batch(torch.from_numpy(x).long().to(device))
+            model.zero_grad()
+            outputs = model.forward(batch.data, batch.mask).transpose(1, 0)
+            # print ("outputs.shape", outputs.shape)
+        else:
+            inputs = torch.from_numpy(x.astype(np.int64)).transpose(0, 1).contiguous().to(device)  # .cuda()
+            model.zero_grad()
+            hidden = repackage_hidden(hidden)
+            outputs, hidden, hidden_timesteps = model(inputs, hidden)
+
+        targets = torch.from_numpy(y.astype(np.int64)).transpose(0, 1).contiguous().to(device)  # .cuda()
+        #tt = torch.squeeze(targets.view(-1, model.batch_size * model.seq_len))
+
+        # LOSS COMPUTATION
+        # This line currently averages across all the sequences in a mini-batch
+        # and all time-steps of the sequences.
+        # For problem 5.1, you will (instead) need to compute the average loss
+        # at each time-step separately.
+
+        #for t in range(0, model.seq_len):
+        #    loss[t] += loss_fn(outputs[t], targets[t]).data.item()
+        #    print(t, loss[t])
+        #iters += 1
+
+        loss_T = loss_fn(outputs[model.seq_len-1], targets[model.seq_len-1])
+
+        for t in range(model.seq_len):
+            for l in range(model.num_layers):
+                hidden_timesteps[t][l].retain_grad()
+
+        loss_T.backward()
+        grads_norm = []
+
+        means = torch.zeros([model.batch_size, model.hidden_size]).to('cuda')
+
+        for t in range(model.seq_len-1):
+             for l in range(model.num_layers):
+                 means = torch.add(means,hidden_timesteps[t][l].grad)
+
+             means = means / (model.num_layers)
+             norm = torch.norm(means)
+             grads_norm.append(norm)
+             #last = torch.norm(hidden_timesteps[model.seq_len-1][0].grad)
+             #pdb.set_trace()
+             #grads_norm.append(last)
+
+        break
+
+    return grads_norm
+
+
+###############################################################################
+#
+# RUN MAIN LOOP (TRAIN AND VAL)
+#
+###############################################################################
+
+print("\n########## Running Main Loop ##########################")
+grads_norm = []
+times = []
+
+
+# MAIN LOOP
+
+model.load_state_dict(torch.load(args.load_model))
+
+model.eval()
+print(model)
+
+for epoch in range(1):
+    t0 = time.time()
+    print('\nEPOCH ' + str(epoch) + ' ------------------')
+    if args.optimizer == 'SGD_LR_SCHEDULE':
+        lr_decay = lr_decay_base ** max(epoch - m_flat_lr, 0)
+        lr = lr * lr_decay  # decay lr if it is time
+
+
+    # RUN MODEL ON VALIDATION DATA FOR ONE MINIBATCH
+    grads_norm = run_epoch(model, valid_data)
+    print(grads_norm)
+
+
+    # SAVE MODEL IF IT'S THE BEST SO FAR
+    # if val_ppl < best_val_so_far:
+    #     best_val_so_far = val_ppl
+    #     if args.save_best:
+    #         print("Saving model parameters to best_params.pt")
+    #         torch.save(model.state_dict(), os.path.join(args.save_dir, 'best_params.pt'))
+        # NOTE ==============================================
+        # You will need to load these parameters into the same model
+        # for a couple Problems: so that you can compute the gradient
+        # of the loss w.r.t. hidden state as required in Problem 5.2
+        # and to sample from the the model as required in Problem 5.3
+        # We are not asking you to run on the test data, but if you
+        # want to look at test performance you would load the saved
+        # model and run on the test data with batch_size=1
+
+    # LOC RESULTS
+    times.append(time.time() - t0)
+    log_str = 'epoch: ' + str(epoch) + '\t' \
+            + 'time (s) spent in epoch: ' + str(times[-1])
+    print(log_str)
+    with open (os.path.join(args.save_dir, 'log.txt'), 'a') as f_:
+        f_.write(log_str+ '\n')
+
+# SAVE LEARNING CURVES
+lc_path = os.path.join(args.save_dir, 'grad_values.npy')
+print('\nDONE\n\nSaving gradient values to '+ lc_path)
+np.save(lc_path, {'grads_norm':grads_norm})
+
+# NOTE ==============================================
+# To load these, run
+# >>> x = np.load(lc_path)[()]
+# You will need these values for plotting learning curves (Problem 4)

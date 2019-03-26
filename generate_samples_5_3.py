@@ -159,7 +159,7 @@ elif args.model == 'GRU':
                 vocab_size=vocab_size, num_layers=args.num_layers,
                 dp_keep_prob=args.dp_keep_prob)
 
-model.load_state_dict(torch.load(args.load_model, map_location='cpu'))
+model.load_state_dict(torch.load(args.load_model))  #, map_location='cpu'))
 # model.to(device) ???
 model.eval()
 print(model)
